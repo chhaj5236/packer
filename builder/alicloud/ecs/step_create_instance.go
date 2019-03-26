@@ -5,9 +5,14 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"strconv"
+	"time"
 
-	"github.com/denverdino/aliyungo/common"
-	"github.com/denverdino/aliyungo/ecs"
+	"github.com/hashicorp/packer/common/uuid"
+
+	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/errors"
+	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/requests"
+	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/helper/multistep"
 	"github.com/hashicorp/packer/packer"
 )
@@ -23,22 +28,22 @@ type stepCreateAlicloudInstance struct {
 	InternetMaxBandwidthOut int
 	InstanceName            string
 	ZoneId                  string
-	instance                *ecs.InstanceAttributesType
+	instance                *ecs.Instance
 }
 
 func (s *stepCreateAlicloudInstance) Run(_ context.Context, state multistep.StateBag) multistep.StepAction {
 	client := state.Get("client").(*ecs.Client)
 	config := state.Get("config").(*Config)
 	ui := state.Get("ui").(packer.Ui)
-	source_image := state.Get("source_image").(*ecs.ImageType)
+	source_image := state.Get("source_image").(*ecs.Image)
 	network_type := state.Get("networktype").(InstanceNetWork)
 	securityGroupId := state.Get("securitygroupid").(string)
 	var instanceId string
 	var err error
 
-	ioOptimized := ecs.IoOptimizedNone
+	ioOptimized := "None"
 	if s.IOOptimized {
-		ioOptimized = ecs.IoOptimizedOptimized
+		ioOptimized = "optimized"
 	}
 	password := config.Comm.SSHPassword
 	if password == "" && config.Comm.WinRMPassword != "" {
@@ -53,28 +58,54 @@ func (s *stepCreateAlicloudInstance) Run(_ context.Context, state multistep.Stat
 			return multistep.ActionHalt
 		}
 		vswitchId := state.Get("vswitchid").(string)
-		instanceId, err = client.CreateInstance(&ecs.CreateInstanceArgs{
-			RegionId:                common.Region(s.RegionId),
-			ImageId:                 source_image.ImageId,
-			InstanceType:            s.InstanceType,
-			InternetChargeType:      common.InternetChargeType(s.InternetChargeType), //"PayByTraffic",
-			InternetMaxBandwidthOut: s.InternetMaxBandwidthOut,
-			UserData:                userData,
-			IoOptimized:             ioOptimized,
-			VSwitchId:               vswitchId,
-			SecurityGroupId:         securityGroupId,
-			InstanceName:            s.InstanceName,
-			Password:                password,
-			ZoneId:                  s.ZoneId,
-			SystemDisk:              systemDeviceToDiskType(config.AlicloudImageConfig.ECSSystemDiskMapping),
-			DataDisk:                diskDeviceToDiskType(config.AlicloudImageConfig.ECSImagesDiskMappings),
-		})
-		if err != nil {
-			err := fmt.Errorf("Error creating instance: %s", err)
-			state.Put("error", err)
-			ui.Error(err.Error())
+		clientToken := uuid.TimeOrderedUUID()
+		systemDisk := config.AlicloudImageConfig.ECSSystemDiskMapping
+		imageDisks := config.AlicloudImageConfig.ECSImagesDiskMappings
+
+		createInstanceReq := ecs.CreateCreateInstanceRequest()
+
+		createInstanceReq.RegionId = s.RegionId
+		createInstanceReq.ImageId = source_image.ImageId
+		createInstanceReq.InstanceType = s.InstanceType
+		createInstanceReq.InternetChargeType = s.InternetChargeType //"PayByTraffic"
+		createInstanceReq.InternetMaxBandwidthOut = requests.Integer(strconv.Itoa(s.InternetMaxBandwidthOut))
+		createInstanceReq.UserData = userData
+		createInstanceReq.IoOptimized = ioOptimized
+		createInstanceReq.VSwitchId = vswitchId
+		createInstanceReq.SecurityGroupId = securityGroupId
+		createInstanceReq.InstanceName = s.InstanceName
+		createInstanceReq.Password = password
+		createInstanceReq.ZoneId = s.ZoneId
+		createInstanceReq.SystemDiskDiskName = systemDisk.DiskName
+		createInstanceReq.SystemDiskCategory = systemDisk.DiskCategory
+		createInstanceReq.SystemDiskSize = requests.Integer(strconv.Itoa(systemDisk.DiskSize))
+		createInstanceReq.SystemDiskDescription = systemDisk.Description
+		createInstanceReq.ClientToken = clientToken
+
+		var datadisks []ecs.CreateInstanceDataDisk
+		ui.Say(fmt.Sprintf("len(imageDisks): %#v", len(imageDisks)))
+
+		for _, imageDisk := range imageDisks {
+			var datadisk ecs.CreateInstanceDataDisk
+			datadisk.DiskName = imageDisk.DiskName
+			datadisk.Category = imageDisk.DiskCategory
+			datadisk.Size = strconv.Itoa(imageDisk.DiskSize)
+			datadisk.SnapshotId = imageDisk.SnapshotId
+			datadisk.Description = imageDisk.Description
+			datadisk.DeleteWithInstance = strconv.FormatBool(imageDisk.DeleteWithInstance)
+			datadisk.Device = imageDisk.Device
+
+			datadisks = append(datadisks, datadisk)
+		}
+		createInstanceReq.DataDisk = &datadisks
+		instance, enr := client.CreateInstance(createInstanceReq)
+		if enr != nil {
+			enr := fmt.Errorf("Error creating instance: %s", enr)
+			state.Put("error", enr)
+			ui.Error(enr.Error())
 			return multistep.ActionHalt
 		}
+		instanceId = instance.InstanceId
 	} else {
 		if s.InstanceType == "" {
 			s.InstanceType = "PayByTraffic"
@@ -82,39 +113,65 @@ func (s *stepCreateAlicloudInstance) Run(_ context.Context, state multistep.Stat
 		if s.InternetMaxBandwidthOut == 0 {
 			s.InternetMaxBandwidthOut = 5
 		}
-		instanceId, err = client.CreateInstance(&ecs.CreateInstanceArgs{
-			RegionId:                common.Region(s.RegionId),
-			ImageId:                 source_image.ImageId,
-			InstanceType:            s.InstanceType,
-			InternetChargeType:      common.InternetChargeType(s.InternetChargeType), //"PayByTraffic",
-			InternetMaxBandwidthOut: s.InternetMaxBandwidthOut,
-			IoOptimized:             ioOptimized,
-			SecurityGroupId:         securityGroupId,
-			InstanceName:            s.InstanceName,
-			Password:                password,
-			ZoneId:                  s.ZoneId,
-			DataDisk:                diskDeviceToDiskType(config.AlicloudImageConfig.ECSImagesDiskMappings),
-		})
+		imageDisks := config.AlicloudImageConfig.ECSImagesDiskMappings
+		clientToken := uuid.TimeOrderedUUID()
+
+		createInstanceReq := ecs.CreateCreateInstanceRequest()
+
+		createInstanceReq.RegionId = s.RegionId
+		createInstanceReq.ImageId = source_image.ImageId
+		createInstanceReq.InstanceType = s.InstanceType
+		createInstanceReq.InternetChargeType = s.InternetChargeType //"PayByTraffic"
+		createInstanceReq.InternetMaxBandwidthOut = requests.Integer(strconv.Itoa(s.InternetMaxBandwidthOut))
+		createInstanceReq.IoOptimized = ioOptimized
+		createInstanceReq.SecurityGroupId = securityGroupId
+		createInstanceReq.InstanceName = s.InstanceName
+		createInstanceReq.Password = password
+		createInstanceReq.ZoneId = s.ZoneId
+		createInstanceReq.ClientToken = clientToken
+
+		var datadisks []ecs.CreateInstanceDataDisk
+
+		for _, imageDisk := range imageDisks {
+			var datadisk ecs.CreateInstanceDataDisk
+			datadisk.DiskName = imageDisk.DiskName
+			datadisk.Category = imageDisk.DiskCategory
+			datadisk.Size = strconv.Itoa(imageDisk.DiskSize)
+			datadisk.SnapshotId = imageDisk.SnapshotId
+			datadisk.Description = imageDisk.Description
+			datadisk.DeleteWithInstance = strconv.FormatBool(imageDisk.DeleteWithInstance)
+			datadisk.Device = imageDisk.Device
+
+			datadisks = append(datadisks, datadisk)
+		}
+		createInstanceReq.DataDisk = &datadisks
+		instance, err := client.CreateInstance(createInstanceReq)
 		if err != nil {
 			err := fmt.Errorf("Error creating instance: %s", err)
 			state.Put("error", err)
 			ui.Error(err.Error())
 			return multistep.ActionHalt
 		}
+		instanceId = instance.InstanceId
 	}
-	err = client.WaitForInstance(instanceId, ecs.Stopped, ALICLOUD_DEFAULT_TIMEOUT)
-	if err != nil {
-		err := fmt.Errorf("Error creating instance: %s", err)
+
+	if err := WaitForInstance(s.RegionId, instanceId, "Stopped", ALICLOUD_DEFAULT_TIMEOUT); err != nil {
+		err := fmt.Errorf("Error waiting create instance: %s", err)
 		state.Put("error", err)
 		ui.Error(err.Error())
 		return multistep.ActionHalt
 	}
-	instance, err := client.DescribeInstanceAttribute(instanceId)
+
+	describeInstancesReq := ecs.CreateDescribeInstancesRequest()
+
+	describeInstancesReq.InstanceIds = "[\"" + instanceId + "\"]"
+	instances, err := client.DescribeInstances(describeInstancesReq)
 	if err != nil {
 		ui.Say(err.Error())
 		return multistep.ActionHalt
 	}
-	s.instance = instance
+	instance := instances.Instances.Instance[0]
+	s.instance = &instance
 	state.Put("instance", instance)
 
 	return multistep.ActionContinue
@@ -127,9 +184,18 @@ func (s *stepCreateAlicloudInstance) Cleanup(state multistep.StateBag) {
 	message(state, "instance")
 	client := state.Get("client").(*ecs.Client)
 	ui := state.Get("ui").(packer.Ui)
-	err := client.DeleteInstance(s.instance.InstanceId)
-	if err != nil {
-		ui.Say(fmt.Sprintf("Failed to clean up instance %s: %v", s.instance.InstanceId, err.Error()))
+
+	deleteInstanceReq := ecs.CreateDeleteInstanceRequest()
+
+	deleteInstanceReq.InstanceId = s.instance.InstanceId
+	deleteInstanceReq.Force = "true"
+	if _, err := client.DeleteInstance(deleteInstanceReq); err != nil {
+		e := err.(errors.Error)
+		if e.ErrorCode() == "IncorrectInstanceStatus.Initializing" {
+			if err := WaitForDeleteInstance(s.RegionId, s.instance.InstanceId, 60); err != nil {
+				ui.Say(fmt.Sprintf("Failed to clean up instance %s: %v", s.instance.InstanceId, err.Error()))
+			}
+		}
 	}
 
 }
@@ -148,27 +214,75 @@ func (s *stepCreateAlicloudInstance) getUserData(state multistep.StateBag) (stri
 
 }
 
-func systemDeviceToDiskType(systemDisk AlicloudDiskDevice) ecs.SystemDiskType {
-	return ecs.SystemDiskType{
-		DiskName:    systemDisk.DiskName,
-		Category:    ecs.DiskCategory(systemDisk.DiskCategory),
-		Size:        systemDisk.DiskSize,
-		Description: systemDisk.Description,
+func WaitForInstance(regionId string, instanceId string, status string, timeout int) error {
+	var b Builder
+	b.config.AlicloudRegion = regionId
+	if err := b.config.Config(); err != nil {
+		return err
 	}
+	client, err := b.config.Client()
+	if err != nil {
+		return err
+	}
+
+	if timeout <= 0 {
+		timeout = 60
+	}
+	for {
+		describeInstancesReq := ecs.CreateDescribeInstancesRequest()
+
+		describeInstancesReq.InstanceIds = "[\"" + instanceId + "\"]"
+		resp, err := client.DescribeInstances(describeInstancesReq)
+		if err != nil {
+			return err
+		}
+		instance := resp.Instances.Instance[0]
+		if instance.Status == status {
+			//TODO
+			//Sleep one more time for timing issues
+			time.Sleep(5 * time.Second)
+			break
+		}
+		timeout = timeout - 5
+		if timeout <= 0 {
+			return fmt.Errorf("Timeout")
+		}
+		time.Sleep(5 * time.Second)
+	}
+	return nil
 }
 
-func diskDeviceToDiskType(diskDevices []AlicloudDiskDevice) []ecs.DataDiskType {
-	result := make([]ecs.DataDiskType, len(diskDevices))
-	for _, diskDevice := range diskDevices {
-		result = append(result, ecs.DataDiskType{
-			DiskName:           diskDevice.DiskName,
-			Category:           ecs.DiskCategory(diskDevice.DiskCategory),
-			Size:               diskDevice.DiskSize,
-			SnapshotId:         diskDevice.SnapshotId,
-			Description:        diskDevice.Description,
-			DeleteWithInstance: diskDevice.DeleteWithInstance,
-			Device:             diskDevice.Device,
-		})
+func WaitForDeleteInstance(regionId string, instanceId string, timeout int) error {
+	var b Builder
+	b.config.AlicloudRegion = regionId
+	if err := b.config.Config(); err != nil {
+		return err
 	}
-	return result
+	client, err := b.config.Client()
+	if err != nil {
+		return err
+	}
+
+	if timeout <= 0 {
+		timeout = 60
+	}
+	for {
+		deleteInstanceReq := ecs.CreateDeleteInstanceRequest()
+
+		deleteInstanceReq.InstanceId = instanceId
+		deleteInstanceReq.Force = "true"
+		if _, err := client.DeleteInstance(deleteInstanceReq); err != nil {
+			e := err.(errors.Error)
+			if e.ErrorCode() == "IncorrectInstanceStatus.Initializing" {
+				timeout = timeout - 5
+				if timeout <= 0 {
+					return fmt.Errorf("Timeout")
+				}
+				time.Sleep(5 * time.Second)
+			}
+		} else {
+			break
+		}
+	}
+	return nil
 }

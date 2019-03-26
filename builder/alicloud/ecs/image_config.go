@@ -2,11 +2,9 @@ package ecs
 
 import (
 	"fmt"
-
 	"regexp"
 	"strings"
 
-	"github.com/denverdino/aliyungo/common"
 	"github.com/hashicorp/packer/template/interpolate"
 )
 
@@ -93,11 +91,12 @@ func (c *AlicloudImageConfig) Prepare(ctx *interpolate.Context) []error {
 
 func validateRegion(region string) error {
 
-	for _, valid := range common.ValidRegions {
-		if region == string(valid) {
+	validRegions := getValidRegions()
+	regions := validRegions.([]string)
+	for _, validregion := range regions {
+		if region == validregion {
 			return nil
 		}
 	}
-
 	return fmt.Errorf("Not a valid alicloud region: %s", region)
 }

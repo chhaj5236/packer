@@ -6,8 +6,7 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/denverdino/aliyungo/common"
-	"github.com/denverdino/aliyungo/ecs"
+	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/helper/communicator"
 	"github.com/hashicorp/packer/helper/multistep"
 	"github.com/hashicorp/packer/packer"
@@ -57,10 +56,11 @@ func (s *stepConfigAlicloudKeyPair) Run(_ context.Context, state multistep.State
 	client := state.Get("client").(*ecs.Client)
 
 	ui.Say(fmt.Sprintf("Creating temporary keypair: %s", s.Comm.SSHTemporaryKeyPairName))
-	keyResp, err := client.CreateKeyPair(&ecs.CreateKeyPairArgs{
-		KeyPairName: s.Comm.SSHTemporaryKeyPairName,
-		RegionId:    common.Region(s.RegionId),
-	})
+	createKeyPairReq := ecs.CreateCreateKeyPairRequest()
+
+	createKeyPairReq.RegionId = s.RegionId
+	createKeyPairReq.KeyPairName = s.Comm.SSHTemporaryKeyPairName
+	keyResp, err := client.CreateKeyPair(createKeyPairReq)
 	if err != nil {
 		state.Put("error", fmt.Errorf("Error creating temporary keypair: %s", err))
 		return multistep.ActionHalt
@@ -115,10 +115,11 @@ func (s *stepConfigAlicloudKeyPair) Cleanup(state multistep.StateBag) {
 
 	// Remove the keypair
 	ui.Say("Deleting temporary keypair...")
-	err := client.DeleteKeyPairs(&ecs.DeleteKeyPairsArgs{
-		RegionId:     common.Region(s.RegionId),
-		KeyPairNames: "[\"" + s.keyName + "\"]",
-	})
+	deleteKeyPairsReq := ecs.CreateDeleteKeyPairsRequest()
+
+	deleteKeyPairsReq.RegionId = s.RegionId
+	deleteKeyPairsReq.KeyPairNames = "[\"" + s.keyName + "\"]"
+	_, err := client.DeleteKeyPairs(deleteKeyPairsReq)
 	if err != nil {
 		ui.Error(fmt.Sprintf(
 			"Error cleaning up keypair. Please delete the key manually: %s", s.keyName))

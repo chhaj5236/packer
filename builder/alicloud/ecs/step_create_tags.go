@@ -3,8 +3,8 @@ package ecs
 import (
 	"context"
 	"fmt"
-	"github.com/denverdino/aliyungo/common"
-	"github.com/denverdino/aliyungo/ecs"
+
+	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/helper/multistep"
 	"github.com/hashicorp/packer/packer"
 )
@@ -23,26 +23,45 @@ func (s *stepCreateTags) Run(_ context.Context, state multistep.StateBag) multis
 	if len(s.Tags) == 0 {
 		return multistep.ActionContinue
 	}
+
 	ui.Say(fmt.Sprintf("Adding tags(%s) to image: %s", s.Tags, imageId))
-	err := client.AddTags(&ecs.AddTagsArgs{
-		ResourceId:   imageId,
-		ResourceType: ecs.TagResourceImage,
-		RegionId:     common.Region(config.AlicloudRegion),
-		Tag:          s.Tags,
-	})
-	if err != nil {
+	addTagsReq := ecs.CreateAddTagsRequest()
+
+	addTagsReq.RegionId = config.AlicloudRegion
+	addTagsReq.ResourceId = imageId
+	addTagsReq.ResourceType = "image"
+
+	var tags []ecs.AddTagsTag
+
+	for key, value := range s.Tags {
+		var tag ecs.AddTagsTag
+		tag.Key = key
+		tag.Value = value
+		tags = append(tags, tag)
+	}
+	addTagsReq.Tag = &tags
+	if _, err := client.AddTags(addTagsReq); err != nil {
 		return halt(state, err, "Error Adding tags to image")
 	}
 
 	for _, snapshotId := range snapshotIds {
 		ui.Say(fmt.Sprintf("Adding tags(%s) to snapshot: %s", s.Tags, snapshotId))
-		err = client.AddTags(&ecs.AddTagsArgs{
-			ResourceId:   snapshotId,
-			ResourceType: ecs.TagResourceSnapshot,
-			RegionId:     common.Region(config.AlicloudRegion),
-			Tag:          s.Tags,
-		})
-		if err != nil {
+		addTagsReq := ecs.CreateAddTagsRequest()
+
+		addTagsReq.RegionId = config.AlicloudRegion
+		addTagsReq.ResourceId = snapshotId
+		addTagsReq.ResourceType = "snapshot"
+
+		var tags []ecs.AddTagsTag
+
+		for key, value := range s.Tags {
+			var tag ecs.AddTagsTag
+			tag.Key = key
+			tag.Value = value
+			tags = append(tags, tag)
+		}
+		addTagsReq.Tag = &tags
+		if _, err := client.AddTags(addTagsReq); err != nil {
 			return halt(state, err, "Error Adding tags to snapshot")
 		}
 	}

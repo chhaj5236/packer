@@ -2,12 +2,12 @@ package ecs
 
 import (
 	"context"
-	"errors"
+	errorsNew "errors"
 	"fmt"
 	"time"
 
-	"github.com/denverdino/aliyungo/common"
-	"github.com/denverdino/aliyungo/ecs"
+	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/errors"
+	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/helper/multistep"
 	"github.com/hashicorp/packer/packer"
 )
@@ -25,40 +25,42 @@ func (s *stepConfigAlicloudVPC) Run(_ context.Context, state multistep.StateBag)
 	ui := state.Get("ui").(packer.Ui)
 
 	if len(s.VpcId) != 0 {
-		vpcs, _, err := client.DescribeVpcs(&ecs.DescribeVpcsArgs{
-			VpcId:    s.VpcId,
-			RegionId: common.Region(config.AlicloudRegion),
-		})
+		describeVpcsReq := ecs.CreateDescribeVpcsRequest()
+
+		describeVpcsReq.VpcId = s.VpcId
+		describeVpcsReq.RegionId = config.AlicloudRegion
+		vpcs, err := client.DescribeVpcs(describeVpcsReq)
 		if err != nil {
 			ui.Say(fmt.Sprintf("Failed querying vpcs: %s", err))
 			state.Put("error", err)
 			return multistep.ActionHalt
 		}
-		if len(vpcs) > 0 {
-			vpc := vpcs[0]
-			state.Put("vpcid", vpc.VpcId)
+		vpc := vpcs.Vpcs.Vpc
+		if len(vpc) > 0 {
+			state.Put("vpcid", vpc[0].VpcId)
 			s.isCreate = false
 			return multistep.ActionContinue
 		}
 		message := fmt.Sprintf("The specified vpc {%s} doesn't exist.", s.VpcId)
-		state.Put("error", errors.New(message))
+		state.Put("error", errorsNew.New(message))
 		ui.Say(message)
 		return multistep.ActionHalt
 
 	}
 	ui.Say("Creating vpc")
-	vpc, err := client.CreateVpc(&ecs.CreateVpcArgs{
-		RegionId:  common.Region(config.AlicloudRegion),
-		CidrBlock: s.CidrBlock,
-		VpcName:   s.VpcName,
-	})
+	createVpcReq := ecs.CreateCreateVpcRequest()
+
+	createVpcReq.RegionId = config.AlicloudRegion
+	createVpcReq.CidrBlock = s.CidrBlock
+	createVpcReq.VpcName = s.VpcName
+	vpc, err := client.CreateVpc(createVpcReq)
 	if err != nil {
 		state.Put("error", err)
 		ui.Say(fmt.Sprintf("Failed creating vpc: %s", err))
 		return multistep.ActionHalt
 	}
-	err = client.WaitForVpcAvailable(common.Region(config.AlicloudRegion), vpc.VpcId, ALICLOUD_DEFAULT_SHORT_TIMEOUT)
-	if err != nil {
+
+	if err := WaitForVpcAvailable(config.AlicloudRegion, vpc.VpcId, ALICLOUD_DEFAULT_SHORT_TIMEOUT); err != nil {
 		state.Put("error", err)
 		ui.Say(fmt.Sprintf("Failed waiting for vpc to become available: %s", err))
 		return multistep.ActionHalt
@@ -81,12 +83,15 @@ func (s *stepConfigAlicloudVPC) Cleanup(state multistep.StateBag) {
 	message(state, "VPC")
 	timeoutPoint := time.Now().Add(60 * time.Second)
 	for {
-		if err := client.DeleteVpc(s.VpcId); err != nil {
-			e, _ := err.(*common.Error)
-			if (e.Code == "DependencyViolation.Instance" || e.Code == "DependencyViolation.RouteEntry" ||
-				e.Code == "DependencyViolation.VSwitch" ||
-				e.Code == "DependencyViolation.SecurityGroup" ||
-				e.Code == "Forbbiden") && time.Now().Before(timeoutPoint) {
+		deleteVpcReq := ecs.CreateDeleteVpcRequest()
+
+		deleteVpcReq.VpcId = s.VpcId
+		if _, err := client.DeleteVpc(deleteVpcReq); err != nil {
+			e := err.(errors.Error)
+			if (e.ErrorCode() == "DependencyViolation.Instance" || e.ErrorCode() == "DependencyViolation.RouteEntry" ||
+				e.ErrorCode() == "DependencyViolation.VSwitch" ||
+				e.ErrorCode() == "DependencyViolation.SecurityGroup" ||
+				e.ErrorCode() == "Forbbiden") && time.Now().Before(timeoutPoint) {
 				time.Sleep(1 * time.Second)
 				continue
 			}
@@ -95,4 +100,40 @@ func (s *stepConfigAlicloudVPC) Cleanup(state multistep.StateBag) {
 		}
 		break
 	}
+}
+
+func WaitForVpcAvailable(regionId string, vpcId string, timeout int) error {
+	var b Builder
+	b.config.AlicloudRegion = regionId
+	if err := b.config.Config(); err != nil {
+		return err
+	}
+	client, err := b.config.Client()
+	if err != nil {
+		return err
+	}
+
+	if timeout <= 0 {
+		timeout = 60
+	}
+	for {
+		describeVpcsReq := ecs.CreateDescribeVpcsRequest()
+
+		describeVpcsReq.RegionId = regionId
+		describeVpcsReq.VpcId = vpcId
+		resp, err := client.DescribeVpcs(describeVpcsReq)
+		if err != nil {
+			return err
+		}
+		vpc := resp.Vpcs.Vpc
+		if len(vpc) > 0 && vpc[0].Status == "Available" {
+			break
+		}
+		timeout = timeout - 5
+		if timeout <= 0 {
+			return fmt.Errorf("Timeout")
+		}
+		time.Sleep(5 * time.Second)
+	}
+	return nil
 }

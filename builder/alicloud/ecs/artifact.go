@@ -6,8 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/denverdino/aliyungo/common"
-	"github.com/denverdino/aliyungo/ecs"
+	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/packer"
 )
 
@@ -68,19 +67,26 @@ func (a *Artifact) Destroy() error {
 		log.Printf("Delete alicloud image ID (%s) from region (%s)", imageId, region)
 
 		// Get alicloud image metadata
-		images, _, err := a.Client.DescribeImages(&ecs.DescribeImagesArgs{
-			RegionId: common.Region(region),
-			ImageId:  imageId})
+		describeImageReq := ecs.CreateDescribeImagesRequest()
+
+		describeImageReq.RegionId = region
+		describeImageReq.ImageId = imageId
+		Imagesreponse, err := a.Client.DescribeImages(describeImageReq)
 		if err != nil {
 			errors = append(errors, err)
 		}
+		images := Imagesreponse.Images.Image
 		if len(images) == 0 {
 			err := fmt.Errorf("Error retrieving details for alicloud image(%s), no alicloud images found", imageId)
 			errors = append(errors, err)
 			continue
 		}
 		//Unshared the shared account before destroy
-		sharePermissions, err := a.Client.DescribeImageSharePermission(&ecs.ModifyImageSharePermissionArgs{RegionId: common.Region(region), ImageId: imageId})
+		describeImageSharePermissionReq := ecs.CreateDescribeImageSharePermissionRequest()
+
+		describeImageSharePermissionReq.RegionId = region
+		describeImageSharePermissionReq.ImageId = imageId
+		sharePermissions, err := a.Client.DescribeImageSharePermission(describeImageSharePermissionReq)
 		if err != nil {
 			errors = append(errors, err)
 		}
@@ -90,27 +96,34 @@ func (a *Artifact) Destroy() error {
 			for index, account := range sharePermissions.Accounts.Account {
 				accounts[index] = account.AliyunId
 			}
-			err := a.Client.ModifyImageSharePermission(&ecs.ModifyImageSharePermissionArgs{
+			modifyImageSharePermissionReq := ecs.CreateModifyImageSharePermissionRequest()
 
-				RegionId:      common.Region(region),
-				ImageId:       imageId,
-				RemoveAccount: accounts,
-			})
+			modifyImageSharePermissionReq.RegionId = region
+			modifyImageSharePermissionReq.ImageId = imageId
+			modifyImageSharePermissionReq.RemoveAccount = &accounts
+			_, err := a.Client.ModifyImageSharePermission(modifyImageSharePermissionReq)
 			if err != nil {
 				errors = append(errors, err)
 			}
 		}
 		// Delete alicloud images
-		if err := a.Client.DeleteImage(common.Region(region), imageId); err != nil {
+		deleteImageReq := ecs.CreateDeleteImageRequest()
+
+		deleteImageReq.ImageId = imageId
+		deleteImageReq.RegionId = region
+		if _, err := a.Client.DeleteImage(deleteImageReq); err != nil {
 			errors = append(errors, err)
 		}
 		//Delete the snapshot of this images
 		for _, diskDevices := range images[0].DiskDeviceMappings.DiskDeviceMapping {
-			if err := a.Client.DeleteSnapshot(diskDevices.SnapshotId); err != nil {
+			deleteSnapshotReq := ecs.CreateDeleteSnapshotRequest()
+
+			deleteSnapshotReq.SnapshotId = diskDevices.SnapshotId
+			_, err := a.Client.DeleteSnapshot(deleteSnapshotReq)
+			if err != nil {
 				errors = append(errors, err)
 			}
 		}
-
 	}
 
 	if len(errors) > 0 {

@@ -3,11 +3,10 @@ package ecs
 import (
 	"context"
 	"fmt"
-
 	"time"
 
-	"github.com/denverdino/aliyungo/common"
-	"github.com/denverdino/aliyungo/ecs"
+	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/errors"
+	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/helper/multistep"
 	"github.com/hashicorp/packer/packer"
 )
@@ -19,19 +18,23 @@ func (s *stepAttachKeyPair) Run(_ context.Context, state multistep.StateBag) mul
 	ui := state.Get("ui").(packer.Ui)
 	client := state.Get("client").(*ecs.Client)
 	config := state.Get("config").(*Config)
-	instance := state.Get("instance").(*ecs.InstanceAttributesType)
+	instance := state.Get("instance").(ecs.Instance)
 	timeoutPoint := time.Now().Add(120 * time.Second)
 	keyPairName := config.Comm.SSHKeyPairName
 	if keyPairName == "" {
 		return multistep.ActionContinue
 	}
 	for {
-		err := client.AttachKeyPair(&ecs.AttachKeyPairArgs{RegionId: common.Region(config.AlicloudRegion),
-			KeyPairName: keyPairName, InstanceIds: "[\"" + instance.InstanceId + "\"]"})
+		attachKeyPairReq := ecs.CreateAttachKeyPairRequest()
+
+		attachKeyPairReq.RegionId = config.AlicloudRegion
+		attachKeyPairReq.KeyPairName = keyPairName
+		attachKeyPairReq.InstanceIds = "[\"" + instance.InstanceId + "\"]"
+		_, err := client.AttachKeyPair(attachKeyPairReq)
 		if err != nil {
-			e, _ := err.(*common.Error)
-			if (!(e.Code == "MissingParameter" || e.Code == "DependencyViolation.WindowsInstance" ||
-				e.Code == "InvalidKeyPairName.NotFound" || e.Code == "InvalidRegionId.NotFound")) &&
+			e, _ := err.(errors.Error)
+			if (!(e.ErrorCode() == "MissingParameter" || e.ErrorCode() == "DependencyViolation.WindowsInstance" ||
+				e.ErrorCode() == "InvalidKeyPairName.NotFound" || e.ErrorCode() == "InvalidRegionId.NotFound")) &&
 				time.Now().Before(timeoutPoint) {
 				time.Sleep(5 * time.Second)
 				continue
@@ -54,14 +57,17 @@ func (s *stepAttachKeyPair) Cleanup(state multistep.StateBag) {
 	client := state.Get("client").(*ecs.Client)
 	config := state.Get("config").(*Config)
 	ui := state.Get("ui").(packer.Ui)
-	instance := state.Get("instance").(*ecs.InstanceAttributesType)
+	instance := state.Get("instance").(ecs.Instance)
 	keyPairName := config.Comm.SSHKeyPairName
 	if keyPairName == "" {
 		return
 	}
+	detachKeyPairReq := ecs.CreateDetachKeyPairRequest()
 
-	err := client.DetachKeyPair(&ecs.DetachKeyPairArgs{RegionId: common.Region(config.AlicloudRegion),
-		KeyPairName: keyPairName, InstanceIds: "[\"" + instance.InstanceId + "\"]"})
+	detachKeyPairReq.RegionId = config.AlicloudRegion
+	detachKeyPairReq.KeyPairName = keyPairName
+	detachKeyPairReq.InstanceIds = "[\"" + instance.InstanceId + "\"]"
+	_, err := client.DetachKeyPair(detachKeyPairReq)
 	if err != nil {
 		err := fmt.Errorf("Error Detaching keypair %s to instance %s : %s", keyPairName,
 			instance.InstanceId, err)

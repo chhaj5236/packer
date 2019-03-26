@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/denverdino/aliyungo/common"
-	"github.com/denverdino/aliyungo/ecs"
+	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/helper/multistep"
 	"github.com/hashicorp/packer/packer"
 )
@@ -57,10 +56,12 @@ func (s *stepDeleteAlicloudImageSnapshots) deleteImageAndSnapshots(state multist
 	client := state.Get("client").(*ecs.Client)
 	ui := state.Get("ui").(packer.Ui)
 
-	images, _, err := client.DescribeImages(&ecs.DescribeImagesArgs{
-		RegionId:  common.Region(region),
-		ImageName: imageName,
-	})
+	describeImagesReq := ecs.CreateDescribeImagesRequest()
+
+	describeImagesReq.RegionId = region
+	describeImagesReq.ImageName = imageName
+	imageRes, _ := client.DescribeImages(describeImagesReq)
+	images := imageRes.Images.Image
 	if len(images) < 1 {
 		return nil
 	}
@@ -68,20 +69,26 @@ func (s *stepDeleteAlicloudImageSnapshots) deleteImageAndSnapshots(state multist
 	ui.Say(fmt.Sprintf("Deleting duplicated image and snapshot in %s: %s", region, imageName))
 
 	for _, image := range images {
-		if image.ImageOwnerAlias != string(ecs.ImageOwnerSelf) {
+		if image.ImageOwnerAlias != string("self") {
 			log.Printf("You can not delete non-customized images: %s ", image.ImageId)
 			continue
 		}
 
-		err = client.DeleteImage(common.Region(region), image.ImageId)
-		if err != nil {
+		deleteImageReq := ecs.CreateDeleteImageRequest()
+
+		deleteImageReq.RegionId = region
+		deleteImageReq.ImageId = image.ImageId
+		if _, err := client.DeleteImage(deleteImageReq); err != nil {
 			err := fmt.Errorf("Failed to delete image: %s", err)
 			return err
 		}
 
 		if s.AlicloudImageForceDeleteSnapshots {
 			for _, diskDevice := range image.DiskDeviceMappings.DiskDeviceMapping {
-				if err := client.DeleteSnapshot(diskDevice.SnapshotId); err != nil {
+				request := ecs.CreateDeleteSnapshotRequest()
+
+				request.SnapshotId = diskDevice.SnapshotId
+				if _, err := client.DeleteSnapshot(request); err != nil {
 					err := fmt.Errorf("Deleting ECS snapshot failed: %s", err)
 					return err
 				}

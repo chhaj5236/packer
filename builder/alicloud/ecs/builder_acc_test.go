@@ -1,13 +1,12 @@
 package ecs
 
 import (
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 
-	"fmt"
-
-	"github.com/denverdino/aliyungo/common"
-	"github.com/denverdino/aliyungo/ecs"
+	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	builderT "github.com/hashicorp/packer/helper/builder/testing"
 	"github.com/hashicorp/packer/packer"
 )
@@ -89,11 +88,13 @@ func TestBuilderAcc_forceDeleteSnapshot(t *testing.T) {
 
 	// Get image data by image image name
 	client, _ := testAliyunClient()
-	images, _, _ := client.DescribeImages(&ecs.DescribeImagesArgs{
-		ImageName: "packer-test-" + destImageName,
-		RegionId:  common.Region("cn-beijing")})
+	describeImagesReq := ecs.CreateDescribeImagesRequest()
 
-	image := images[0]
+	describeImagesReq.RegionId = "cn-beijing"
+	describeImagesReq.ImageName = "packer-test-" + destImageName
+	images, _ := client.DescribeImages(describeImagesReq)
+
+	image := images.Images.Image[0]
 
 	// Get snapshot ids for image
 	snapshotIds := []string{}
@@ -128,13 +129,17 @@ func checkSnapshotsDeleted(snapshotIds []string) builderT.TestCheckFunc {
 	return func(artifacts []packer.Artifact) error {
 		// Verify the snapshots are gone
 		client, _ := testAliyunClient()
-		snapshotResp, _, err := client.DescribeSnapshots(
-			&ecs.DescribeSnapshotsArgs{RegionId: common.Region("cn-beijing"), SnapshotIds: snapshotIds},
-		)
+		snapshot := strings.Join(snapshotIds, " ")
+		describeSnapshotsReq := ecs.CreateDescribeSnapshotsRequest()
+
+		describeSnapshotsReq.RegionId = "cn-beijing"
+		describeSnapshotsReq.SnapshotIds = snapshot
+		snapshotResp, err := client.DescribeSnapshots(describeSnapshotsReq)
 		if err != nil {
 			return fmt.Errorf("Query snapshot failed %v", err)
 		}
-		if len(snapshotResp) > 0 {
+		snapshots := snapshotResp.Snapshots.Snapshot
+		if len(snapshots) > 0 {
 			return fmt.Errorf("Snapshots weren't successfully deleted by " +
 				"`ecs_image_force_delete_snapshots`")
 		}
@@ -157,11 +162,11 @@ func checkECSImageSharing(uid string) builderT.TestCheckFunc {
 
 		// describe the image, get block devices with a snapshot
 		client, _ := testAliyunClient()
-		imageSharePermissionResponse, err := client.DescribeImageSharePermission(
-			&ecs.ModifyImageSharePermissionArgs{
-				RegionId: "cn-beijing",
-				ImageId:  artifact.AlicloudImages["cn-beijing"],
-			})
+		describeImageSharePermissionReq := ecs.CreateDescribeImageSharePermissionRequest()
+
+		describeImageSharePermissionReq.RegionId = "cn-beijing"
+		describeImageSharePermissionReq.ImageId = artifact.AlicloudImages["cn-beijing"]
+		imageSharePermissionResponse, err := client.DescribeImageSharePermission(describeImageSharePermissionReq)
 
 		if err != nil {
 			return fmt.Errorf("Error retrieving Image Attributes for ECS Image Artifact (%#v) "+
@@ -210,9 +215,13 @@ func checkRegionCopy(regions []string) builderT.TestCheckFunc {
 		if len(regionSet) > 0 {
 			return fmt.Errorf("didn't copy to: %#v", regionSet)
 		}
-		client, _ := testAliyunClient()
-		for key, value := range artifact.AlicloudImages {
-			client.WaitForImageReady(common.Region(key), value, 1800)
+
+		for region, image := range artifact.AlicloudImages {
+			err := WaitForImageReady(region, image, 1800)
+			if err != nil {
+				return err
+			}
+			return nil
 		}
 		return nil
 	}
@@ -231,17 +240,18 @@ func checkImageTags() builderT.TestCheckFunc {
 		}
 		// describe the image, get block devices with a snapshot
 		client, _ := testAliyunClient()
-		tags, _, err := client.DescribeTags(
-			&ecs.DescribeTagsArgs{
-				RegionId:     "cn-beijing",
-				ResourceType: ecs.TagResourceImage,
-				ResourceId:   artifact.AlicloudImages["cn-beijing"],
-			})
+		describeTagsReq := ecs.CreateDescribeTagsRequest()
+
+		describeTagsReq.RegionId = "cn-beijing"
+		describeTagsReq.ResourceType = "image"
+		describeTagsReq.ResourceId = artifact.AlicloudImages["cn-beijing"]
+		tagsresp, err := client.DescribeTags(describeTagsReq)
 		if err != nil {
 			return fmt.Errorf("Error retrieving Image Attributes for ECS Image Artifact (%#v) "+
 				"in ECS Image Tags Test: %s", artifact, err)
 		}
 		failed := false
+		tags := tagsresp.Tags.Tag
 		if len(tags) != 2 {
 			failed = true
 		}

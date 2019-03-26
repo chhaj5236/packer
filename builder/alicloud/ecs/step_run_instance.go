@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/denverdino/aliyungo/ecs"
+	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/helper/multistep"
 	"github.com/hashicorp/packer/packer"
 )
@@ -15,10 +15,11 @@ type stepRunAlicloudInstance struct {
 func (s *stepRunAlicloudInstance) Run(_ context.Context, state multistep.StateBag) multistep.StepAction {
 	client := state.Get("client").(*ecs.Client)
 	ui := state.Get("ui").(packer.Ui)
-	instance := state.Get("instance").(*ecs.InstanceAttributesType)
+	instance := state.Get("instance").(ecs.Instance)
+	startInstanceReq := ecs.CreateStartInstanceRequest()
 
-	err := client.StartInstance(instance.InstanceId)
-	if err != nil {
+	startInstanceReq.InstanceId = instance.InstanceId
+	if _, err := client.StartInstance(startInstanceReq); err != nil {
 		err := fmt.Errorf("Error starting instance: %s", err)
 		state.Put("error", err)
 		ui.Error(err.Error())
@@ -27,8 +28,7 @@ func (s *stepRunAlicloudInstance) Run(_ context.Context, state multistep.StateBa
 
 	ui.Say(fmt.Sprintf("Starting instance: %s", instance.InstanceId))
 
-	err = client.WaitForInstance(instance.InstanceId, ecs.Running, ALICLOUD_DEFAULT_TIMEOUT)
-	if err != nil {
+	if err := WaitForInstance(instance.RegionId, instance.InstanceId, "Running", ALICLOUD_DEFAULT_TIMEOUT); err != nil {
 		err := fmt.Errorf("Timeout waiting for instance to start: %s", err)
 		state.Put("error", err)
 		ui.Error(err.Error())
@@ -44,14 +44,22 @@ func (s *stepRunAlicloudInstance) Cleanup(state multistep.StateBag) {
 	if cancelled || halted {
 		ui := state.Get("ui").(packer.Ui)
 		client := state.Get("client").(*ecs.Client)
-		instance := state.Get("instance").(*ecs.InstanceAttributesType)
-		instanceAttribute, _ := client.DescribeInstanceAttribute(instance.InstanceId)
-		if instanceAttribute.Status == ecs.Starting || instanceAttribute.Status == ecs.Running {
-			if err := client.StopInstance(instance.InstanceId, true); err != nil {
+		instance := state.Get("instance").(ecs.Instance)
+		describeInstancesReq := ecs.CreateDescribeInstancesRequest()
+
+		describeInstancesReq.InstanceIds = "[\"" + instance.InstanceId + "\"]"
+		instances, _ := client.DescribeInstances(describeInstancesReq)
+		instanceAttribute := instances.Instances.Instance[0]
+		if instanceAttribute.Status == "Starting" || instanceAttribute.Status == "Running" {
+			stopInstanceReq := ecs.CreateStopInstanceRequest()
+
+			stopInstanceReq.InstanceId = instance.InstanceId
+			stopInstanceReq.ForceStop = "true"
+			if _, err := client.StopInstance(stopInstanceReq); err != nil {
 				ui.Say(fmt.Sprintf("Error stopping instance %s, it may still be around %s", instance.InstanceId, err))
 				return
 			}
-			if err := client.WaitForInstance(instance.InstanceId, ecs.Stopped, ALICLOUD_DEFAULT_TIMEOUT); err != nil {
+			if err := WaitForInstance(instance.RegionId, instance.InstanceId, "Stopped", ALICLOUD_DEFAULT_TIMEOUT); err != nil {
 				ui.Say(fmt.Sprintf("Error stopping instance %s, it may still be around %s", instance.InstanceId, err))
 			}
 		}

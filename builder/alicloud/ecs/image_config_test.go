@@ -2,8 +2,6 @@ package ecs
 
 import (
 	"testing"
-
-	"github.com/denverdino/aliyungo/common"
 )
 
 func testAlicloudImageConfig() *AlicloudImageConfig {
@@ -74,9 +72,7 @@ func TestECSImageConfigPrepare_imageTags(t *testing.T) {
 }
 
 func regionsToString() []string {
-	var regions []string
-	for _, region := range common.ValidRegions {
-		regions = append(regions, string(region))
-	}
-	return regions
+	regions := getValidRegions()
+	region := regions.([]string)
+	return region
 }

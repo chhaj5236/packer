@@ -3,10 +3,10 @@
 package ecs
 
 import (
+	"fmt"
 	"log"
 
-	"fmt"
-
+	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/common"
 	"github.com/hashicorp/packer/helper/communicator"
 	"github.com/hashicorp/packer/helper/config"
@@ -37,6 +37,11 @@ type InstanceNetWork string
 const (
 	ClassicNet                     = InstanceNetWork("classic")
 	VpcNet                         = InstanceNetWork("vpc")
+	IpProtocol                     = "all"
+	PortRange                      = "-1/-1"
+	NicType                        = "internet"
+	CidrIp                         = "0.0.0.0/0" //The input parameter "SourceGroupId" or "SourceCidrIp" cannot be both blank.
+	DiskType                       = "system"
 	ALICLOUD_DEFAULT_SHORT_TIMEOUT = 180
 	ALICLOUD_DEFAULT_TIMEOUT       = 1800
 	ALICLOUD_DEFAULT_LONG_TIMEOUT  = 3600
@@ -270,4 +275,40 @@ func (b *Builder) getSnapshotReadyTimeout() int {
 	}
 
 	return ALICLOUD_DEFAULT_LONG_TIMEOUT
+}
+
+func getValidRegions() interface{} {
+	var b Builder
+	if err := b.config.Config(); err != nil {
+		return err
+	}
+
+	client, err := ecs.NewClientWithAccessKey(b.config.AlicloudRegion, b.config.AlicloudAccessKey, b.config.AlicloudSecretKey)
+	if err != nil {
+		return err
+	}
+	describeRegionsReq := ecs.CreateDescribeRegionsRequest()
+
+	response, enc := client.DescribeRegions(describeRegionsReq)
+	if enc != nil {
+		return enc
+	}
+	validRegions := []string{}
+	for _, valid := range response.Regions.Region {
+		validRegions = append(validRegions, valid.RegionId)
+	}
+	return validRegions
+}
+
+type Region string
+
+//IsValidRegion checks if r is an Ali supported region.
+func IsValidRegion(r Region) bool {
+	validRegion := getValidRegions()
+	for _, v := range validRegion.([]string) {
+		if string(r) == v {
+			return true
+		}
+	}
+	return false
 }

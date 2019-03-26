@@ -39,6 +39,8 @@ github.com/SermoDigital/jose v0.9.1 h1:atYaHPD3lPICcbK1owly3aPm0iaJGSGPi0WD4vLzn
 github.com/SermoDigital/jose v0.9.1/go.mod h1:ARgCUhI1MHQH+ONky/PAtmVHQrP5JlGY0F3poXOp/fA=
 github.com/abdullin/seq v0.0.0-20160510034733-d5467c17e7af h1:DBNMBMuMiWYu0b+8KMJuWmfCkcxl09JwdlqwDZZ6U14=
 github.com/abdullin/seq v0.0.0-20160510034733-d5467c17e7af/go.mod h1:5Jv4cbFiHJMsVxt52+i0Ha45fjshj6wxYr1r19tB9bw=
+github.com/aliyun/alibaba-cloud-sdk-go v0.0.0-20190322160716-69d623c6d25b h1:/L2RWUpPYyt5mRXlWzD2qQe9boF0O/1ZX3QOn5ISB20=
+github.com/aliyun/alibaba-cloud-sdk-go v0.0.0-20190322160716-69d623c6d25b/go.mod h1:T9M45xf79ahXVelWoOBmH0y4aC1t5kXO5BxwyakgIGA=
 github.com/aliyun/aliyun-oss-go-sdk v0.0.0-20170113022742-e6dbea820a9f h1:jI4DIE5Vf4oRaHfthB0oRhU+yuYuoOTurDzwAlskP00=
 github.com/aliyun/aliyun-oss-go-sdk v0.0.0-20170113022742-e6dbea820a9f/go.mod h1:T/Aws4fEfogEE9v+HPhhw+CntffsBHJ8nXQCwKr0/g8=
 github.com/anmitsu/go-shlex v0.0.0-20161002113705-648efa622239/go.mod h1:2FmKhYUyUczH0OGQWaF5ceTx0UBShxjsH6f8oGKYe2c=

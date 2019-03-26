@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/errors"
+	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
+	"github.com/aliyun/alibaba-cloud-sdk-go/services/ram"
 	"github.com/aliyun/aliyun-oss-go-sdk/oss"
-	packercommon "github.com/denverdino/aliyungo/common"
-	"github.com/denverdino/aliyungo/ecs"
-	"github.com/denverdino/aliyungo/ram"
 	packerecs "github.com/hashicorp/packer/builder/alicloud/ecs"
 	"github.com/hashicorp/packer/common"
 	"github.com/hashicorp/packer/helper/config"
@@ -23,7 +23,10 @@ const (
 	OSSSuffix                             = "oss-"
 	RAWFileFormat                         = "raw"
 	VHDFileFormat                         = "vhd"
-	BUSINESSINFO                          = "packer"
+	PolicyType                            = "System"
+	DefaultRoleName                       = "AliyunECSImageImportDefaultRole"
+	NoSetRole                             = "NoSetRoletoECSServiceAccount"
+	PolicyName                            = "AliyunECSImageImportRolePolicy"
 	AliyunECSImageImportDefaultRolePolicy = `{
   "Statement": [
     {
@@ -150,18 +153,21 @@ func (p *PostProcessor) PostProcess(ui packer.Ui, artifact packer.Artifact) (pac
 	if err != nil {
 		return nil, false, fmt.Errorf("Failed to connect alicloud ecs  %s", err)
 	}
-	ecsClient.SetBusinessInfo(BUSINESSINFO)
+	ecsClient.AppendUserAgent("packer", "")
 
-	images, _, err := ecsClient.DescribeImages(&ecs.DescribeImagesArgs{
-		RegionId:  packercommon.Region(p.config.AlicloudRegion),
-		ImageName: p.config.AlicloudImageName,
-	})
+	alicloudRegion := p.config.AlicloudRegion
+	describeImagesReq := ecs.CreateDescribeImagesRequest()
+
+	describeImagesReq.RegionId = alicloudRegion
+	describeImagesReq.ImageName = p.config.AlicloudImageName
+	images, err := ecsClient.DescribeImages(describeImagesReq)
 	if err != nil {
 		return nil, false, fmt.Errorf("Failed to start import from %s/%s: %s",
 			getEndPonit(p.config.OSSBucket), p.config.OSSKey, err)
 	}
 
-	if len(images) > 0 && !p.config.AlicloudImageForceDelete {
+	image := images.Images.Image
+	if len(image) > 0 && !p.config.AlicloudImageForceDelete {
 		return nil, false, fmt.Errorf("Duplicated image exists, please delete the existing images " +
 			"or set the 'image_force_delete' value as true")
 	}
@@ -186,108 +192,76 @@ func (p *PostProcessor) PostProcess(ui packer.Ui, artifact packer.Artifact) (pac
 	if err != nil {
 		return nil, false, fmt.Errorf("Failed to upload image %s: %s", source, err)
 	}
-	if len(images) > 0 && p.config.AlicloudImageForceDelete {
-		if err = ecsClient.DeleteImage(packercommon.Region(p.config.AlicloudRegion),
-			images[0].ImageId); err != nil {
-			return nil, false, fmt.Errorf("Delete duplicated image %s failed", images[0].ImageName)
+	if len(image) > 0 && p.config.AlicloudImageForceDelete {
+		deleteImageReq := ecs.CreateDeleteImageRequest()
+
+		deleteImageReq.RegionId = alicloudRegion
+		deleteImageReq.ImageId = image[0].ImageId
+		_, err := ecsClient.DeleteImage(deleteImageReq)
+		if err != nil {
+			return nil, false, fmt.Errorf("Delete duplicated image %s failed", image[0].ImageName)
 		}
 	}
 
 	diskDeviceMapping := ecs.DiskDeviceMapping{
-		Size:      p.config.Size,
-		Format:    p.config.Format,
-		OSSBucket: p.config.OSSBucket,
-		OSSObject: p.config.OSSKey,
+		Size:            p.config.Size,
+		Format:          p.config.Format,
+		ImportOSSBucket: p.config.OSSBucket,
+		ImportOSSObject: p.config.OSSKey,
 	}
-	imageImageArgs := &ecs.ImportImageArgs{
-		RegionId:     packercommon.Region(p.config.AlicloudRegion),
-		ImageName:    p.config.AlicloudImageName,
-		ImageVersion: p.config.AlicloudImageVersion,
-		Description:  p.config.AlicloudImageDescription,
-		Architecture: p.config.Architecture,
-		OSType:       p.config.OSType,
-		Platform:     p.config.Platform,
-	}
-	imageImageArgs.DiskDeviceMappings.DiskDeviceMapping = []ecs.DiskDeviceMapping{
-		diskDeviceMapping,
-	}
-	imageId, err := ecsClient.ImportImage(imageImageArgs)
+
+	importImageReq := ecs.CreateImportImageRequest()
+
+	importImageReq.RegionId = alicloudRegion
+	importImageReq.ImageName = p.config.AlicloudImageName
+	importImageReq.Description = p.config.AlicloudImageDescription
+	importImageReq.Architecture = p.config.Architecture
+	importImageReq.OSType = p.config.OSType
+	importImageReq.Platform = p.config.Platform
+
+	var importImageDiskDeviceMappings []ecs.ImportImageDiskDeviceMapping
+	var importImageDiskDeviceMapping ecs.ImportImageDiskDeviceMapping
+
+	importImageDiskDeviceMapping.DiskImSize = diskDeviceMapping.Size
+	importImageDiskDeviceMapping.Format = diskDeviceMapping.Format
+	importImageDiskDeviceMapping.OSSBucket = diskDeviceMapping.ImportOSSBucket
+	importImageDiskDeviceMapping.OSSObject = diskDeviceMapping.ImportOSSObject
+
+	importImageReq.DiskDeviceMapping = &importImageDiskDeviceMappings
+	importimage, err := ecsClient.ImportImage(importImageReq)
 
 	if err != nil {
-		e, _ := err.(*packercommon.Error)
-		if e.Code == "NoSetRoletoECSServiceAccount" {
-			ramClient := ram.NewClient(p.config.AlicloudAccessKey, p.config.AlicloudSecretKey)
-			roleResponse, err := ramClient.GetRole(ram.RoleQueryRequest{
-				RoleName: "AliyunECSImageImportDefaultRole",
-			})
+		e := err.(errors.Error)
+		if e.ErrorCode() == NoSetRole {
+			ramClient, _ := ram.NewClient()
+			getRoleReq := ram.CreateGetRoleRequest()
+
+			getRoleReq.RoleName = DefaultRoleName
+			roleResponse, err := ramClient.GetRole(getRoleReq)
 			if err != nil {
 				return nil, false, fmt.Errorf("Failed to start import from %s/%s: %s",
 					getEndPonit(p.config.OSSBucket), p.config.OSSKey, err)
 			}
 			if roleResponse.Role.RoleId == "" {
-				if _, err = ramClient.CreateRole(ram.RoleRequest{
-					RoleName:                 "AliyunECSImageImportDefaultRole",
-					AssumeRolePolicyDocument: AliyunECSImageImportDefaultRolePolicy,
-				}); err != nil {
-					return nil, false, fmt.Errorf("Failed to start import from %s/%s: %s",
-						getEndPonit(p.config.OSSBucket), p.config.OSSKey, err)
-				}
-				if _, err := ramClient.AttachPolicyToRole(ram.AttachPolicyToRoleRequest{
-					PolicyRequest: ram.PolicyRequest{
-						PolicyName: "AliyunECSImageImportRolePolicy",
-						PolicyType: "System",
-					},
-					RoleName: "AliyunECSImageImportDefaultRole",
-				}); err != nil {
-					return nil, false, fmt.Errorf("Failed to start import from %s/%s: %s",
-						getEndPonit(p.config.OSSBucket), p.config.OSSKey, err)
+
+				if err := p.createAttachRole(); err != nil {
+					return nil, false, fmt.Errorf("Failed to create_attach : %s", err)
 				}
 			} else {
-				policyListResponse, err := ramClient.ListPoliciesForRole(ram.RoleQueryRequest{
-					RoleName: "AliyunECSImageImportDefaultRole",
-				})
-				if err != nil {
-					return nil, false, fmt.Errorf("Failed to start import from %s/%s: %s",
-						getEndPonit(p.config.OSSBucket), p.config.OSSKey, err)
-				}
-				isAliyunECSImageImportRolePolicyNotExit := true
-				for _, policy := range policyListResponse.Policies.Policy {
-					if policy.PolicyName == "AliyunECSImageImportRolePolicy" &&
-						policy.PolicyType == "System" {
-						isAliyunECSImageImportRolePolicyNotExit = false
-						break
-					}
-				}
-				if isAliyunECSImageImportRolePolicyNotExit {
-					if _, err := ramClient.AttachPolicyToRole(ram.AttachPolicyToRoleRequest{
-						PolicyRequest: ram.PolicyRequest{
-							PolicyName: "AliyunECSImageImportRolePolicy",
-							PolicyType: "System",
-						},
-						RoleName: "AliyunECSImageImportDefaultRole",
-					}); err != nil {
-						return nil, false, fmt.Errorf("Failed to start import from %s/%s: %s",
-							getEndPonit(p.config.OSSBucket), p.config.OSSKey, err)
-					}
-				}
-				if _, err = ramClient.UpdateRole(
-					ram.UpdateRoleRequest{
-						RoleName:                    "AliyunECSImageImportDefaultRole",
-						NewAssumeRolePolicyDocument: AliyunECSImageImportDefaultRolePolicy,
-					}); err != nil {
-					return nil, false, fmt.Errorf("Failed to start import from %s/%s: %s",
-						getEndPonit(p.config.OSSBucket), p.config.OSSKey, err)
+
+				if err := p.attachUpdateRole(); err != nil {
+					return nil, false, fmt.Errorf("Failed to attach_update : %s", err)
 				}
 			}
 			for i := 10; i > 0; i = i - 1 {
-				imageId, err = ecsClient.ImportImage(imageImageArgs)
+				_, err := ecsClient.ImportImage(importImageReq)
 				if err != nil {
-					e, _ = err.(*packercommon.Error)
-					if e.Code == "NoSetRoletoECSServiceAccount" {
+					e = err.(errors.Error)
+					if e.ErrorCode() == NoSetRole {
 						time.Sleep(5 * time.Second)
 						continue
-					} else if e.Code == "ImageIsImporting" ||
-						e.Code == "InvalidImageName.Duplicated" {
+					} else if e.ErrorCode() == "ImageIsImporting" ||
+						e.ErrorCode() == "InvalidImageName.Duplicated" {
 						break
 					}
 					return nil, false, fmt.Errorf("Failed to start import from %s/%s: %s",
@@ -303,13 +277,12 @@ func (p *PostProcessor) PostProcess(ui packer.Ui, artifact packer.Artifact) (pac
 		}
 	}
 
-	err = ecsClient.WaitForImageReady(packercommon.Region(p.config.AlicloudRegion),
-		imageId, packerecs.ALICLOUD_DEFAULT_LONG_TIMEOUT)
+	err = packerecs.WaitForImageReady(alicloudRegion, importimage.ImageId, packerecs.ALICLOUD_DEFAULT_LONG_TIMEOUT)
 	// Add the reported Alicloud image ID to the artifact list
-	log.Printf("Importing created alicloud image ID %s in region %s Finished.", imageId, p.config.AlicloudRegion)
+	log.Printf("Importing created alicloud image ID %s in region %s Finished.", importimage.ImageId, p.config.AlicloudRegion)
 	artifact = &packerecs.Artifact{
 		AlicloudImages: map[string]string{
-			p.config.AlicloudRegion: imageId,
+			p.config.AlicloudRegion: importimage.ImageId,
 		},
 		BuilderIdValue: BuilderId,
 		Client:         ecsClient,
@@ -363,4 +336,66 @@ func GetECSRegion(region string) string {
 	}
 	return region
 
+}
+
+func (p *PostProcessor) createAttachRole() error {
+	ramClient, _ := ram.NewClient()
+	createRoleReq := ram.CreateCreateRoleRequest()
+
+	createRoleReq.RoleName = DefaultRoleName
+	createRoleReq.AssumeRolePolicyDocument = AliyunECSImageImportDefaultRolePolicy
+	if _, err := ramClient.CreateRole(createRoleReq); err != nil {
+		return fmt.Errorf("Failed to start import from %s/%s: %s",
+			getEndPonit(p.config.OSSBucket), p.config.OSSKey, err)
+	}
+	attachPolicyToRoleReq := ram.CreateAttachPolicyToRoleRequest()
+
+	attachPolicyToRoleReq.PolicyName = PolicyName
+	attachPolicyToRoleReq.PolicyType = PolicyType
+	attachPolicyToRoleReq.RoleName = DefaultRoleName
+	if _, err := ramClient.AttachPolicyToRole(attachPolicyToRoleReq); err != nil {
+		return fmt.Errorf("Failed to start import from %s/%s: %s",
+			getEndPonit(p.config.OSSBucket), p.config.OSSKey, err)
+	}
+	return nil
+}
+
+func (p *PostProcessor) attachUpdateRole() error {
+	ramClient, _ := ram.NewClient()
+	listPoliciesForRoleReq := ram.CreateListPoliciesForRoleRequest()
+
+	listPoliciesForRoleReq.RoleName = DefaultRoleName
+	policyListResponse, err := ramClient.ListPoliciesForRole(listPoliciesForRoleReq)
+	if err != nil {
+		return fmt.Errorf("Failed to start import from %s/%s: %s",
+			getEndPonit(p.config.OSSBucket), p.config.OSSKey, err)
+	}
+	isAliyunECSImageImportRolePolicyNotExit := true
+	for _, policy := range policyListResponse.Policies.Policy {
+		if policy.PolicyName == PolicyName &&
+			policy.PolicyType == PolicyType {
+			isAliyunECSImageImportRolePolicyNotExit = false
+			break
+		}
+	}
+	if isAliyunECSImageImportRolePolicyNotExit {
+		attachPolicyToRoleReq := ram.CreateAttachPolicyToRoleRequest()
+
+		attachPolicyToRoleReq.PolicyName = PolicyName
+		attachPolicyToRoleReq.PolicyType = PolicyType
+		attachPolicyToRoleReq.RoleName = DefaultRoleName
+		if _, err := ramClient.AttachPolicyToRole(attachPolicyToRoleReq); err != nil {
+			return fmt.Errorf("Failed to start import from %s/%s: %s",
+				getEndPonit(p.config.OSSBucket), p.config.OSSKey, err)
+		}
+	}
+	updateRoleReq := ram.CreateUpdateRoleRequest()
+
+	updateRoleReq.RoleName = DefaultRoleName
+	updateRoleReq.NewAssumeRolePolicyDocument = AliyunECSImageImportDefaultRolePolicy
+	if _, err := ramClient.UpdateRole(updateRoleReq); err != nil {
+		return fmt.Errorf("Failed to start import from %s/%s: %s",
+			getEndPonit(p.config.OSSBucket), p.config.OSSKey, err)
+	}
+	return nil
 }

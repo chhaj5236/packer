@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/denverdino/aliyungo/common"
-	"github.com/denverdino/aliyungo/ecs"
+	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/template/interpolate"
 )
 
@@ -26,11 +25,15 @@ func (c *AlicloudAccessConfig) Client() (*ecs.Client, error) {
 	if c.SecurityToken == "" {
 		c.SecurityToken = os.Getenv("SECURITY_TOKEN")
 	}
-	client := ecs.NewECSClientWithSecurityToken(c.AlicloudAccessKey, c.AlicloudSecretKey,
-		c.SecurityToken, common.Region(c.AlicloudRegion))
 
-	client.SetBusinessInfo("Packer")
-	if _, err := client.DescribeRegions(); err != nil {
+	client, _ := ecs.NewClientWithStsToken(c.AlicloudRegion, c.AlicloudAccessKey,
+		c.AlicloudSecretKey, c.SecurityToken)
+
+	client.AppendUserAgent("packer", "")
+	describeRegionsReq := ecs.CreateDescribeRegionsRequest()
+
+	describeRegionsReq.RegionId = c.AlicloudRegion
+	if _, err := client.DescribeRegions(describeRegionsReq); err != nil {
 		return nil, err
 	}
 	return client, nil
@@ -43,7 +46,7 @@ func (c *AlicloudAccessConfig) Prepare(ctx *interpolate.Context) []error {
 	}
 
 	if c.AlicloudRegion != "" && !c.AlicloudSkipValidation {
-		if c.validateRegion() != nil {
+		if validateRegion(c.AlicloudRegion) != nil {
 			errs = append(errs, fmt.Errorf("Unknown alicloud region: %s", c.AlicloudRegion))
 		}
 	}
@@ -70,20 +73,10 @@ func (c *AlicloudAccessConfig) Config() error {
 }
 
 func (c *AlicloudAccessConfig) loadAndValidate() error {
-	if err := c.validateRegion(); err != nil {
+	if err := validateRegion(c.AlicloudRegion); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (c *AlicloudAccessConfig) validateRegion() error {
-
-	for _, valid := range common.ValidRegions {
-		if c.AlicloudRegion == string(valid) {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("Not a valid alicloud region: %s", c.AlicloudRegion)
-}

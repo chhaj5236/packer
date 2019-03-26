@@ -4,8 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/denverdino/aliyungo/common"
-	"github.com/denverdino/aliyungo/ecs"
+	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/helper/multistep"
 	"github.com/hashicorp/packer/packer"
 )
@@ -24,7 +23,7 @@ func (s *stepRegionCopyAlicloudImage) Run(_ context.Context, state multistep.Sta
 	ui := state.Get("ui").(packer.Ui)
 	imageId := state.Get("alicloudimage").(string)
 	alicloudImages := state.Get("alicloudimages").(map[string]string)
-	region := common.Region(s.RegionId)
+	region := s.RegionId
 
 	numberOfName := len(s.AlicloudImageDestinationNames)
 	for index, destinationRegion := range s.AlicloudImageDestinationRegions {
@@ -35,19 +34,19 @@ func (s *stepRegionCopyAlicloudImage) Run(_ context.Context, state multistep.Sta
 		if numberOfName > 0 && index < numberOfName {
 			ecsImageName = s.AlicloudImageDestinationNames[index]
 		}
-		imageId, err := client.CopyImage(
-			&ecs.CopyImageArgs{
-				RegionId:             region,
-				ImageId:              imageId,
-				DestinationRegionId:  common.Region(destinationRegion),
-				DestinationImageName: ecsImageName,
-			})
+		copyImageReq := ecs.CreateCopyImageRequest()
+
+		copyImageReq.RegionId = region
+		copyImageReq.ImageId = imageId
+		copyImageReq.DestinationRegionId = destinationRegion
+		copyImageReq.DestinationImageName = ecsImageName
+		image, err := client.CopyImage(copyImageReq)
 		if err != nil {
 			state.Put("error", err)
 			ui.Say(fmt.Sprintf("Error copying images: %s", err))
 			return multistep.ActionHalt
 		}
-		alicloudImages[destinationRegion] = imageId
+		alicloudImages[destinationRegion] = image.ImageId
 	}
 	return multistep.ActionContinue
 }
@@ -64,7 +63,11 @@ func (s *stepRegionCopyAlicloudImage) Cleanup(state multistep.StateBag) {
 			if copiedRegionId == s.RegionId {
 				continue
 			}
-			if err := client.CancelCopyImage(common.Region(copiedRegionId), copiedImageId); err != nil {
+			cancelCopyImageReq := ecs.CreateCancelCopyImageRequest()
+
+			cancelCopyImageReq.RegionId = copiedRegionId
+			cancelCopyImageReq.ImageId = copiedImageId
+			if _, err := client.CancelCopyImage(cancelCopyImageReq); err != nil {
 				ui.Say(fmt.Sprintf("Error cancelling copy image: %v", err))
 			}
 		}

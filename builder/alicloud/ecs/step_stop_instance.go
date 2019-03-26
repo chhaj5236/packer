@@ -3,8 +3,11 @@ package ecs
 import (
 	"context"
 	"fmt"
+	"strconv"
 
-	"github.com/denverdino/aliyungo/ecs"
+	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/requests"
+
+	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/helper/multistep"
 	"github.com/hashicorp/packer/packer"
 )
@@ -16,13 +19,16 @@ type stepStopAlicloudInstance struct {
 
 func (s *stepStopAlicloudInstance) Run(_ context.Context, state multistep.StateBag) multistep.StepAction {
 	client := state.Get("client").(*ecs.Client)
-	instance := state.Get("instance").(*ecs.InstanceAttributesType)
+	instance := state.Get("instance").(ecs.Instance)
 	ui := state.Get("ui").(packer.Ui)
 
 	if !s.DisableStop {
 		ui.Say(fmt.Sprintf("Stopping instance: %s", instance.InstanceId))
-		err := client.StopInstance(instance.InstanceId, s.ForceStop)
-		if err != nil {
+		stopInstanceReq := ecs.CreateStopInstanceRequest()
+
+		stopInstanceReq.InstanceId = instance.InstanceId
+		stopInstanceReq.ForceStop = requests.Boolean(strconv.FormatBool(s.ForceStop))
+		if _, err := client.StopInstance(stopInstanceReq); err != nil {
 			err := fmt.Errorf("Error stopping alicloud instance: %s", err)
 			state.Put("error", err)
 			ui.Error(err.Error())
@@ -32,8 +38,7 @@ func (s *stepStopAlicloudInstance) Run(_ context.Context, state multistep.StateB
 
 	ui.Say(fmt.Sprintf("Waiting instance stopped: %s", instance.InstanceId))
 
-	err := client.WaitForInstance(instance.InstanceId, ecs.Stopped, ALICLOUD_DEFAULT_TIMEOUT)
-	if err != nil {
+	if err := WaitForInstance(instance.RegionId, instance.InstanceId, "Stopped", ALICLOUD_DEFAULT_TIMEOUT); err != nil {
 		err := fmt.Errorf("Error waiting for alicloud instance to stop: %s", err)
 		state.Put("error", err)
 		ui.Error(err.Error())

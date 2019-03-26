@@ -2,12 +2,11 @@ package ecs
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
-	"github.com/denverdino/aliyungo/common"
-	"github.com/denverdino/aliyungo/ecs"
+	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/errors"
+	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/helper/multistep"
 	"github.com/hashicorp/packer/packer"
 )
@@ -26,19 +25,23 @@ func (s *stepConfigAlicloudSecurityGroup) Run(_ context.Context, state multistep
 	ui := state.Get("ui").(packer.Ui)
 	networkType := state.Get("networktype").(InstanceNetWork)
 
-	var securityGroupItems []ecs.SecurityGroupItemType
+	var securityGroupItems []ecs.SecurityGroup
 	var err error
 	if len(s.SecurityGroupId) != 0 {
 		if networkType == VpcNet {
 			vpcId := state.Get("vpcid").(string)
-			securityGroupItems, _, err = client.DescribeSecurityGroups(&ecs.DescribeSecurityGroupsArgs{
-				VpcId:    vpcId,
-				RegionId: common.Region(s.RegionId),
-			})
+			describeSecurityGroupsReq := ecs.CreateDescribeSecurityGroupsRequest()
+
+			describeSecurityGroupsReq.VpcId = vpcId
+			describeSecurityGroupsReq.RegionId = s.RegionId
+			securityGroups, _ := client.DescribeSecurityGroups(describeSecurityGroupsReq)
+			securityGroupItems = securityGroups.SecurityGroups.SecurityGroup
 		} else {
-			securityGroupItems, _, err = client.DescribeSecurityGroups(&ecs.DescribeSecurityGroupsArgs{
-				RegionId: common.Region(s.RegionId),
-			})
+			describeSecurityGroupsReq := ecs.CreateDescribeSecurityGroupsRequest()
+
+			describeSecurityGroupsReq.RegionId = s.RegionId
+			securityGroups, _ := client.DescribeSecurityGroups(describeSecurityGroupsReq)
+			securityGroupItems = securityGroups.SecurityGroups.SecurityGroup
 		}
 
 		if err != nil {
@@ -55,7 +58,7 @@ func (s *stepConfigAlicloudSecurityGroup) Run(_ context.Context, state multistep
 		}
 		s.isCreate = false
 		message := fmt.Sprintf("The specified security group {%s} doesn't exist.", s.SecurityGroupId)
-		state.Put("error", errors.New(message))
+		state.Put("error", message)
 		ui.Say(message)
 		return multistep.ActionHalt
 
@@ -64,16 +67,20 @@ func (s *stepConfigAlicloudSecurityGroup) Run(_ context.Context, state multistep
 	ui.Say("Creating security groups...")
 	if networkType == VpcNet {
 		vpcId := state.Get("vpcid").(string)
-		securityGroupId, err = client.CreateSecurityGroup(&ecs.CreateSecurityGroupArgs{
-			RegionId:          common.Region(s.RegionId),
-			SecurityGroupName: s.SecurityGroupName,
-			VpcId:             vpcId,
-		})
+		createSecurityGroupReq := ecs.CreateCreateSecurityGroupRequest()
+
+		createSecurityGroupReq.RegionId = s.RegionId
+		createSecurityGroupReq.SecurityGroupName = s.SecurityGroupName
+		createSecurityGroupReq.VpcId = vpcId
+		securityGroup, _ := client.CreateSecurityGroup(createSecurityGroupReq)
+		securityGroupId = securityGroup.SecurityGroupId
 	} else {
-		securityGroupId, err = client.CreateSecurityGroup(&ecs.CreateSecurityGroupArgs{
-			RegionId:          common.Region(s.RegionId),
-			SecurityGroupName: s.SecurityGroupName,
-		})
+		createSecurityGroupReq := ecs.CreateCreateSecurityGroupRequest()
+
+		createSecurityGroupReq.RegionId = s.RegionId
+		createSecurityGroupReq.SecurityGroupName = s.SecurityGroupName
+		securityGroup, _ := client.CreateSecurityGroup(createSecurityGroupReq)
+		securityGroupId = securityGroup.SecurityGroupId
 	}
 	if err != nil {
 		state.Put("error", err)
@@ -83,28 +90,30 @@ func (s *stepConfigAlicloudSecurityGroup) Run(_ context.Context, state multistep
 	state.Put("securitygroupid", securityGroupId)
 	s.isCreate = true
 	s.SecurityGroupId = securityGroupId
-	err = client.AuthorizeSecurityGroupEgress(&ecs.AuthorizeSecurityGroupEgressArgs{
-		SecurityGroupId: securityGroupId,
-		RegionId:        common.Region(s.RegionId),
-		IpProtocol:      ecs.IpProtocolAll,
-		PortRange:       "-1/-1",
-		NicType:         ecs.NicTypeInternet,
-		DestCidrIp:      "0.0.0.0/0", //The input parameter "DestGroupId" or "DestCidrIp" cannot be both blank.
-	})
-	if err != nil {
+
+	authorizeSecurityGroupEgressReq := ecs.CreateAuthorizeSecurityGroupEgressRequest()
+
+	authorizeSecurityGroupEgressReq.SecurityGroupId = securityGroupId
+	authorizeSecurityGroupEgressReq.RegionId = s.RegionId
+	authorizeSecurityGroupEgressReq.IpProtocol = IpProtocol
+	authorizeSecurityGroupEgressReq.PortRange = PortRange
+	authorizeSecurityGroupEgressReq.NicType = NicType
+	authorizeSecurityGroupEgressReq.DestCidrIp = CidrIp
+	if _, err := client.AuthorizeSecurityGroupEgress(authorizeSecurityGroupEgressReq); err != nil {
 		state.Put("error", err)
 		ui.Say(fmt.Sprintf("Failed authorizing security group: %s", err))
 		return multistep.ActionHalt
 	}
-	err = client.AuthorizeSecurityGroup(&ecs.AuthorizeSecurityGroupArgs{
-		SecurityGroupId: securityGroupId,
-		RegionId:        common.Region(s.RegionId),
-		IpProtocol:      ecs.IpProtocolAll,
-		PortRange:       "-1/-1",
-		NicType:         ecs.NicTypeInternet,
-		SourceCidrIp:    "0.0.0.0/0", //The input parameter "SourceGroupId" or "SourceCidrIp" cannot be both blank.
-	})
-	if err != nil {
+
+	authorizeSecurityGroupReq := ecs.CreateAuthorizeSecurityGroupRequest()
+
+	authorizeSecurityGroupReq.SecurityGroupId = securityGroupId
+	authorizeSecurityGroupReq.RegionId = s.RegionId
+	authorizeSecurityGroupReq.IpProtocol = IpProtocol
+	authorizeSecurityGroupReq.PortRange = PortRange
+	authorizeSecurityGroupReq.NicType = NicType
+	authorizeSecurityGroupReq.SourceCidrIp = CidrIp
+	if _, err := client.AuthorizeSecurityGroup(authorizeSecurityGroupReq); err != nil {
 		state.Put("error", err)
 		ui.Say(fmt.Sprintf("Failed authorizing security group: %s", err))
 		return multistep.ActionHalt
@@ -124,9 +133,13 @@ func (s *stepConfigAlicloudSecurityGroup) Cleanup(state multistep.StateBag) {
 	message(state, "security group")
 	timeoutPoint := time.Now().Add(120 * time.Second)
 	for {
-		if err := client.DeleteSecurityGroup(common.Region(s.RegionId), s.SecurityGroupId); err != nil {
-			e, _ := err.(*common.Error)
-			if e.Code == "DependencyViolation" && time.Now().Before(timeoutPoint) {
+		deleteSecurityGroupReq := ecs.CreateDeleteSecurityGroupRequest()
+
+		deleteSecurityGroupReq.RegionId = s.RegionId
+		deleteSecurityGroupReq.SecurityGroupId = s.SecurityGroupId
+		if _, err := client.DeleteSecurityGroup(deleteSecurityGroupReq); err != nil {
+			e := err.(errors.Error)
+			if e.ErrorCode() == "DependencyViolation" && time.Now().Before(timeoutPoint) {
 				time.Sleep(5 * time.Second)
 				continue
 			}

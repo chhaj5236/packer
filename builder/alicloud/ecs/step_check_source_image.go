@@ -3,9 +3,11 @@ package ecs
 import (
 	"context"
 	"fmt"
+	"strconv"
 
-	"github.com/denverdino/aliyungo/common"
-	"github.com/denverdino/aliyungo/ecs"
+	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/requests"
+
+	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/helper/multistep"
 	"github.com/hashicorp/packer/packer"
 )
@@ -18,30 +20,33 @@ func (s *stepCheckAlicloudSourceImage) Run(_ context.Context, state multistep.St
 	client := state.Get("client").(*ecs.Client)
 	config := state.Get("config").(*Config)
 	ui := state.Get("ui").(packer.Ui)
-	args := &ecs.DescribeImagesArgs{
-		RegionId: common.Region(config.AlicloudRegion),
-		ImageId:  config.AlicloudSourceImage,
-	}
-	args.PageSize = 50
-	images, _, err := client.DescribeImages(args)
+	pageSize := 50
+	describeImagesReq := ecs.CreateDescribeImagesRequest()
+
+	describeImagesReq.RegionId = config.AlicloudRegion
+	describeImagesReq.ImageId = config.AlicloudSourceImage
+	describeImagesReq.PageSize = requests.Integer(strconv.Itoa(pageSize))
+	imageRes, err := client.DescribeImages(describeImagesReq)
 	if err != nil {
 		err := fmt.Errorf("Error querying alicloud image: %s", err)
 		state.Put("error", err)
 		ui.Error(err.Error())
 		return multistep.ActionHalt
 	}
+	images := imageRes.Images.Image
 
 	// Describe markerplace image
-	args.ImageOwnerAlias = ecs.ImageOwnerMarketplace
-	imageMarkets, _, err := client.DescribeImages(args)
+	describeImagesReq.ImageOwnerAlias = "marketplace"
+	imageMarkets, err := client.DescribeImages(describeImagesReq)
 	if err != nil {
 		err := fmt.Errorf("Error querying alicloud marketplace image: %s", err)
 		state.Put("error", err)
 		ui.Error(err.Error())
 		return multistep.ActionHalt
 	}
-	if len(imageMarkets) > 0 {
-		images = append(images, imageMarkets...)
+	marketImages := imageMarkets.Images.Image
+	if len(marketImages) > 0 {
+		images = append(images, marketImages...)
 	}
 
 	if len(images) == 0 {
