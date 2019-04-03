@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/common"
 	"github.com/hashicorp/packer/helper/communicator"
 	"github.com/hashicorp/packer/helper/config"
@@ -275,40 +274,4 @@ func (b *Builder) getSnapshotReadyTimeout() int {
 	}
 
 	return ALICLOUD_DEFAULT_LONG_TIMEOUT
-}
-
-func getValidRegions() interface{} {
-	var b Builder
-	if err := b.config.Config(); err != nil {
-		return err
-	}
-
-	client, err := ecs.NewClientWithAccessKey(b.config.AlicloudRegion, b.config.AlicloudAccessKey, b.config.AlicloudSecretKey)
-	if err != nil {
-		return err
-	}
-	describeRegionsReq := ecs.CreateDescribeRegionsRequest()
-
-	response, enc := client.DescribeRegions(describeRegionsReq)
-	if enc != nil {
-		return enc
-	}
-	validRegions := []string{}
-	for _, valid := range response.Regions.Region {
-		validRegions = append(validRegions, valid.RegionId)
-	}
-	return validRegions
-}
-
-type Region string
-
-//IsValidRegion checks if r is an Ali supported region.
-func IsValidRegion(r Region) bool {
-	validRegion := getValidRegions()
-	for _, v := range validRegion.([]string) {
-		if string(r) == v {
-			return true
-		}
-	}
-	return false
 }

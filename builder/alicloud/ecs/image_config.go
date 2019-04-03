@@ -67,15 +67,6 @@ func (c *AlicloudImageConfig) Prepare(ctx *interpolate.Context) []error {
 
 			// Mark that we saw the region
 			regionSet[region] = struct{}{}
-
-			if !c.AlicloudImageSkipRegionValidation {
-				// Verify the region is real
-				if valid := validateRegion(region); valid != nil {
-					errs = append(errs, fmt.Errorf("Unknown region: %s", region))
-					continue
-				}
-			}
-
 			regions = append(regions, region)
 		}
 
@@ -89,14 +80,3 @@ func (c *AlicloudImageConfig) Prepare(ctx *interpolate.Context) []error {
 	return nil
 }
 
-func validateRegion(region string) error {
-
-	validRegions := getValidRegions()
-	regions := validRegions.([]string)
-	for _, validregion := range regions {
-		if region == validregion {
-			return nil
-		}
-	}
-	return fmt.Errorf("Not a valid alicloud region: %s", region)
-}

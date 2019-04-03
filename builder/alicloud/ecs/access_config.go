@@ -2,6 +2,7 @@ package ecs
 
 import (
 	"fmt"
+	"github.com/hashicorp/packer/version"
 	"os"
 
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
@@ -15,28 +16,32 @@ type AlicloudAccessConfig struct {
 	AlicloudRegion         string `mapstructure:"region"`
 	AlicloudSkipValidation bool   `mapstructure:"skip_region_validation"`
 	SecurityToken          string `mapstructure:"security_token"`
+
+	client *ecs.Client
 }
+
+const Packer = "HashiCorp-Packer"
 
 // Client for AlicloudClient
 func (c *AlicloudAccessConfig) Client() (*ecs.Client, error) {
-	if err := c.loadAndValidate(); err != nil {
-		return nil, err
+	if c.client != nil {
+		return c.client, nil
 	}
+
 	if c.SecurityToken == "" {
 		c.SecurityToken = os.Getenv("SECURITY_TOKEN")
 	}
 
-	client, _ := ecs.NewClientWithStsToken(c.AlicloudRegion, c.AlicloudAccessKey,
+	client, err := ecs.NewClientWithStsToken(c.AlicloudRegion, c.AlicloudAccessKey,
 		c.AlicloudSecretKey, c.SecurityToken)
-
-	client.AppendUserAgent("packer", "")
-	describeRegionsReq := ecs.CreateDescribeRegionsRequest()
-
-	describeRegionsReq.RegionId = c.AlicloudRegion
-	if _, err := client.DescribeRegions(describeRegionsReq); err != nil {
+	if err != nil {
 		return nil, err
 	}
-	return client, nil
+
+	client.AppendUserAgent(Packer, version.FormattedVersion())
+	c.client = client
+
+	return c.client, nil
 }
 
 func (c *AlicloudAccessConfig) Prepare(ctx *interpolate.Context) []error {
@@ -45,10 +50,12 @@ func (c *AlicloudAccessConfig) Prepare(ctx *interpolate.Context) []error {
 		errs = append(errs, err)
 	}
 
-	if c.AlicloudRegion != "" && !c.AlicloudSkipValidation {
-		if validateRegion(c.AlicloudRegion) != nil {
-			errs = append(errs, fmt.Errorf("Unknown alicloud region: %s", c.AlicloudRegion))
-		}
+	if c.AlicloudRegion == "" {
+		c.AlicloudRegion = os.Getenv("ALICLOUD_REGION")
+	}
+
+	if c.AlicloudRegion == "" {
+		errs = append(errs, fmt.Errorf("ALICLOUD_REGION must be set in template file or environment variables."))
 	}
 
 	if len(errs) > 0 {
@@ -72,11 +79,38 @@ func (c *AlicloudAccessConfig) Config() error {
 
 }
 
-func (c *AlicloudAccessConfig) loadAndValidate() error {
-	if err := validateRegion(c.AlicloudRegion); err != nil {
+func (c *AlicloudAccessConfig) ValidateRegion(region string) error {
+	supportedRegions, err := c.getSupportedRegions()
+	if err != nil {
 		return err
 	}
 
-	return nil
+	for _, supportedRegion := range supportedRegions {
+		if region == supportedRegion {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("Not a valid alicloud region: %s", region)
+}
+
+func (c *AlicloudAccessConfig) getSupportedRegions() ([]string, error) {
+	client, err := c.Client()
+	if err != nil{
+		return nil, err
+	}
+
+	regionsRequest := ecs.CreateDescribeRegionsRequest()
+	regionsResponse, err := client.DescribeRegions(regionsRequest)
+	if err != nil {
+		return  nil, err
+	}
+
+	validRegions := make([]string, len(regionsResponse.Regions.Region))
+	for _, valid := range regionsResponse.Regions.Region {
+		validRegions = append(validRegions, valid.RegionId)
+	}
+
+	return validRegions, nil
 }
 

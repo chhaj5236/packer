@@ -29,11 +29,6 @@ func TestAMIConfigPrepare_regions(t *testing.T) {
 		t.Fatalf("shouldn't have err: %s", err)
 	}
 
-	c.AlicloudImageDestinationRegions = regionsToString()
-	if err := c.Prepare(nil); err != nil {
-		t.Fatalf("shouldn't have err: %s", err)
-	}
-
 	c.AlicloudImageDestinationRegions = []string{"foo"}
 	if err := c.Prepare(nil); err == nil {
 		t.Fatal("should have error")
@@ -69,10 +64,4 @@ func TestECSImageConfigPrepare_imageTags(t *testing.T) {
 			"TagKey2": "TagValue2",
 		}, c.AlicloudImageTags)
 	}
-}
-
-func regionsToString() []string {
-	regions := getValidRegions()
-	region := regions.([]string)
-	return region
 }
