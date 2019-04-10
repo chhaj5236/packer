@@ -217,7 +217,8 @@ func checkRegionCopy(regions []string) builderT.TestCheckFunc {
 		}
 
 		for region, image := range artifact.AlicloudImages {
-			err := WaitForImageReady(region, image, 1800)
+			waitForParam := AlicloudAccessConfig{AlicloudRegion: region, WaitForImageId: image}
+			err := WaitForExpected(waitForParam.DescribeImages, waitForParam.EvaluatorImages, 1800)
 			if err != nil {
 				return err
 			}

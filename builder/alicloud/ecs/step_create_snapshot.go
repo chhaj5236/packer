@@ -3,7 +3,6 @@ package ecs
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/helper/multistep"
@@ -47,7 +46,8 @@ func (s *stepCreateAlicloudSnapshot) Run(_ context.Context, state multistep.Stat
 		return halt(state, err, "Error creating snapshot")
 	}
 
-	if err := WaitForSnapShotReady(config.AlicloudRegion, snapshot.SnapshotId, s.WaitSnapshotReadyTimeout); err != nil {
+	waitForParam := AlicloudAccessConfig{AlicloudRegion: config.AlicloudRegion, WaitForSnapshotId: snapshot.SnapshotId}
+	if err := WaitForExpected(waitForParam.DescribeSnapshots, waitForParam.EvaluatorSnapshots, s.WaitSnapshotReadyTimeout); err != nil {
 		return halt(state, err, "Timeout waiting for snapshot to be created")
 	}
 
@@ -91,43 +91,4 @@ func (s *stepCreateAlicloudSnapshot) Cleanup(state multistep.StateBag) {
 		ui.Error(fmt.Sprintf("Error deleting snapshot, it may still be around: %s", err))
 		return
 	}
-}
-
-func WaitForSnapShotReady(regionId string, snapshotId string, timeout int) error {
-	var b Builder
-	b.config.AlicloudRegion = regionId
-	if err := b.config.Config(); err != nil {
-		return err
-	}
-	client, err := b.config.Client()
-	if err != nil {
-		return err
-	}
-
-	if timeout <= 0 {
-		timeout = 60
-	}
-	for {
-		describeSnapshotsReq := ecs.CreateDescribeSnapshotsRequest()
-
-		describeSnapshotsReq.RegionId = regionId
-		describeSnapshotsReq.SnapshotIds = snapshotId
-		resp, err := client.DescribeSnapshots(describeSnapshotsReq)
-		if err != nil {
-			return err
-		}
-		snapshot := resp.Snapshots.Snapshot
-		if snapshot != nil || len(snapshot) == 0 {
-			return fmt.Errorf("Not found snapshot")
-		}
-		if snapshot[0].Progress == "100%" {
-			break
-		}
-		timeout = timeout - 5
-		if timeout <= 0 {
-			return fmt.Errorf("Timeout")
-		}
-		time.Sleep(5 * time.Second)
-	}
-	return nil
 }

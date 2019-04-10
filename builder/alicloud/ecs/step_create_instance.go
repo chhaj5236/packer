@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"log"
 	"strconv"
-	"time"
 
 	"github.com/hashicorp/packer/common/uuid"
 
@@ -83,7 +82,6 @@ func (s *stepCreateAlicloudInstance) Run(_ context.Context, state multistep.Stat
 		createInstanceReq.ClientToken = clientToken
 
 		var datadisks []ecs.CreateInstanceDataDisk
-		ui.Say(fmt.Sprintf("len(imageDisks): %#v", len(imageDisks)))
 
 		for _, imageDisk := range imageDisks {
 			var datadisk ecs.CreateInstanceDataDisk
@@ -155,7 +153,8 @@ func (s *stepCreateAlicloudInstance) Run(_ context.Context, state multistep.Stat
 		instanceId = instance.InstanceId
 	}
 
-	if err := WaitForInstance(s.RegionId, instanceId, "Stopped", ALICLOUD_DEFAULT_TIMEOUT); err != nil {
+	waitForParam := AlicloudAccessConfig{AlicloudRegion: s.RegionId, WaitForInstanceId: instanceId, WaitForStatus: "Stopped"}
+	if err := WaitForExpected(waitForParam.DescribeInstances, waitForParam.EvaluatorInstance, ALICLOUD_DEFAULT_TIMEOUT); err != nil {
 		err := fmt.Errorf("Error waiting create instance: %s", err)
 		state.Put("error", err)
 		ui.Error(err.Error())
@@ -192,7 +191,8 @@ func (s *stepCreateAlicloudInstance) Cleanup(state multistep.StateBag) {
 	if _, err := client.DeleteInstance(deleteInstanceReq); err != nil {
 		e := err.(errors.Error)
 		if e.ErrorCode() == "IncorrectInstanceStatus.Initializing" {
-			if err := WaitForDeleteInstance(s.RegionId, s.instance.InstanceId, 60); err != nil {
+			waitForParam := AlicloudAccessConfig{AlicloudRegion: s.RegionId, WaitForInstanceId: s.instance.InstanceId}
+			if err := WaitForExpected(waitForParam.DeleteInstance, waitForParam.EvaluatorDeleteInstance, 60); err != nil {
 				ui.Say(fmt.Sprintf("Failed to clean up instance %s: %v", s.instance.InstanceId, err.Error()))
 			}
 		}
@@ -212,77 +212,4 @@ func (s *stepCreateAlicloudInstance) getUserData(state multistep.StateBag) (stri
 	log.Printf(userData)
 	return userData, nil
 
-}
-
-func WaitForInstance(regionId string, instanceId string, status string, timeout int) error {
-	var b Builder
-	b.config.AlicloudRegion = regionId
-	if err := b.config.Config(); err != nil {
-		return err
-	}
-	client, err := b.config.Client()
-	if err != nil {
-		return err
-	}
-
-	if timeout <= 0 {
-		timeout = 60
-	}
-	for {
-		describeInstancesReq := ecs.CreateDescribeInstancesRequest()
-
-		describeInstancesReq.InstanceIds = "[\"" + instanceId + "\"]"
-		resp, err := client.DescribeInstances(describeInstancesReq)
-		if err != nil {
-			return err
-		}
-		instance := resp.Instances.Instance[0]
-		if instance.Status == status {
-			//TODO
-			//Sleep one more time for timing issues
-			time.Sleep(5 * time.Second)
-			break
-		}
-		timeout = timeout - 5
-		if timeout <= 0 {
-			return fmt.Errorf("Timeout")
-		}
-		time.Sleep(5 * time.Second)
-	}
-	return nil
-}
-
-func WaitForDeleteInstance(regionId string, instanceId string, timeout int) error {
-	var b Builder
-	b.config.AlicloudRegion = regionId
-	if err := b.config.Config(); err != nil {
-		return err
-	}
-	client, err := b.config.Client()
-	if err != nil {
-		return err
-	}
-
-	if timeout <= 0 {
-		timeout = 60
-	}
-	for {
-		deleteInstanceReq := ecs.CreateDeleteInstanceRequest()
-
-		deleteInstanceReq.InstanceId = instanceId
-		deleteInstanceReq.Force = "true"
-		if _, err := client.DeleteInstance(deleteInstanceReq); err != nil {
-			e := err.(errors.Error)
-			if e.ErrorCode() == "IncorrectInstanceStatus.Initializing" {
-				timeout = timeout - 5
-				if timeout <= 0 {
-					return fmt.Errorf("Timeout")
-				}
-				time.Sleep(5 * time.Second)
-			}
-		} else {
-			break
-		}
-	}
-	return nil
 }

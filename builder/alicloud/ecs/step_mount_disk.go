@@ -3,7 +3,6 @@ package ecs
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/helper/multistep"
@@ -51,7 +50,8 @@ func (s *stepMountAlicloudDisk) Run(_ context.Context, state multistep.StateBag)
 		}
 	}
 	for _, disk := range disks {
-		if err := WaitForDisk(instance.RegionId, disk.DiskId, "In_use", ALICLOUD_DEFAULT_SHORT_TIMEOUT); err != nil {
+		waitForParam := AlicloudAccessConfig{AlicloudRegion: instance.RegionId, WaitForDiskId: disk.DiskId, WaitForStatus: "In_use"}
+		if err := WaitForExpected(waitForParam.DescribeDisks, waitForParam.EvaluatorDisks, ALICLOUD_DEFAULT_SHORT_TIMEOUT); err != nil {
 			err := fmt.Errorf("Timeout waiting for mount: %s", err)
 			state.Put("error", err)
 			ui.Error(err.Error())
@@ -76,43 +76,4 @@ func getDevice(disk *ecs.Disk, diskDevices []AlicloudDiskDevice) string {
 		}
 	}
 	return ""
-}
-
-func WaitForDisk(regionId string, diskId string, status string, timeout int) error {
-	var b Builder
-	b.config.AlicloudRegion = regionId
-	if err := b.config.Config(); err != nil {
-		return err
-	}
-	client, err := b.config.Client()
-	if err != nil {
-		return err
-	}
-
-	if timeout <= 0 {
-		timeout = 60
-	}
-	for {
-		describeDisksReq := ecs.CreateDescribeDisksRequest()
-
-		describeDisksReq.RegionId = regionId
-		describeDisksReq.DiskIds = diskId
-		resp, err := client.DescribeDisks(describeDisksReq)
-		if err != nil {
-			return err
-		}
-		disk := resp.Disks.Disk
-		if disk != nil || len(disk) == 0 {
-			return fmt.Errorf("Not found disk")
-		}
-		if disk[0].Status == status {
-			break
-		}
-		timeout = timeout - 5
-		if timeout <= 0 {
-			return fmt.Errorf("Timeout")
-		}
-		time.Sleep(5 * time.Second)
-	}
-	return nil
 }

@@ -38,7 +38,8 @@ func (s *stepStopAlicloudInstance) Run(_ context.Context, state multistep.StateB
 
 	ui.Say(fmt.Sprintf("Waiting instance stopped: %s", instance.InstanceId))
 
-	if err := WaitForInstance(instance.RegionId, instance.InstanceId, "Stopped", ALICLOUD_DEFAULT_TIMEOUT); err != nil {
+	waitForParam := AlicloudAccessConfig{AlicloudRegion: instance.RegionId, WaitForInstanceId: instance.InstanceId, WaitForStatus: "Stopped"}
+	if err := WaitForExpected(waitForParam.DescribeInstances, waitForParam.EvaluatorInstance, ALICLOUD_DEFAULT_TIMEOUT); err != nil {
 		err := fmt.Errorf("Error waiting for alicloud instance to stop: %s", err)
 		state.Put("error", err)
 		ui.Error(err.Error())

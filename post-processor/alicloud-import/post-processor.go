@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/packer/version"
 	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/errors"
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/ram"
@@ -27,6 +28,7 @@ const (
 	DefaultRoleName                       = "AliyunECSImageImportDefaultRole"
 	NoSetRole                             = "NoSetRoletoECSServiceAccount"
 	PolicyName                            = "AliyunECSImageImportRolePolicy"
+	Packer                                = "HashiCorp-Packer"
 	AliyunECSImageImportDefaultRolePolicy = `{
   "Statement": [
     {
@@ -153,7 +155,7 @@ func (p *PostProcessor) PostProcess(ui packer.Ui, artifact packer.Artifact) (pac
 	if err != nil {
 		return nil, false, fmt.Errorf("Failed to connect alicloud ecs  %s", err)
 	}
-	ecsClient.AppendUserAgent("packer", "")
+	ecsClient.AppendUserAgent(Packer, version.FormattedVersion())
 
 	alicloudRegion := p.config.AlicloudRegion
 	describeImagesReq := ecs.CreateDescribeImagesRequest()
@@ -277,7 +279,8 @@ func (p *PostProcessor) PostProcess(ui packer.Ui, artifact packer.Artifact) (pac
 		}
 	}
 
-	err = packerecs.WaitForImageReady(alicloudRegion, importimage.ImageId, packerecs.ALICLOUD_DEFAULT_LONG_TIMEOUT)
+	waitForParam := packerecs.AlicloudAccessConfig{AlicloudRegion: alicloudRegion, WaitForImageId: importimage.ImageId}
+	err = packerecs.WaitForExpected(waitForParam.DescribeImages, waitForParam.EvaluatorImages, packerecs.ALICLOUD_DEFAULT_LONG_TIMEOUT)
 	// Add the reported Alicloud image ID to the artifact list
 	log.Printf("Importing created alicloud image ID %s in region %s Finished.", importimage.ImageId, p.config.AlicloudRegion)
 	artifact = &packerecs.Artifact{

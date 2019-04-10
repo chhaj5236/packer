@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/helper/multistep"
@@ -49,7 +48,8 @@ func (s *stepConfigAlicloudEIP) Run(_ context.Context, state multistep.StateBag)
 	}
 	s.allocatedId = response.AllocationId
 
-	if err := WaitForEip(instance.RegionId, response.AllocationId, "Available", ALICLOUD_DEFAULT_SHORT_TIMEOUT); err != nil {
+	waitForParam_Avail := AlicloudAccessConfig{AlicloudRegion: instance.RegionId, WaitForAllocatedId: response.AllocationId, WaitForStatus: "Available"}
+	if err := WaitForExpected(waitForParam_Avail.DescribeEipAddresses, waitForParam_Avail.EvaluatorEipAddress, ALICLOUD_DEFAULT_SHORT_TIMEOUT); err != nil {
 		state.Put("error", err)
 		ui.Say(fmt.Sprintf("Error allocating eip: %s", err))
 		return multistep.ActionHalt
@@ -65,7 +65,8 @@ func (s *stepConfigAlicloudEIP) Run(_ context.Context, state multistep.StateBag)
 		return multistep.ActionHalt
 	}
 
-	if err := WaitForEip(instance.RegionId, response.AllocationId, "InUse", ALICLOUD_DEFAULT_SHORT_TIMEOUT); err != nil {
+	waitForParam_InUse := AlicloudAccessConfig{AlicloudRegion: instance.RegionId, WaitForAllocatedId: response.AllocationId, WaitForStatus: "InUse"}
+	if err := WaitForExpected(waitForParam_InUse.DescribeEipAddresses, waitForParam_InUse.EvaluatorEipAddress, ALICLOUD_DEFAULT_SHORT_TIMEOUT); err != nil {
 		state.Put("error", err)
 		ui.Say(fmt.Sprintf("Error associating eip: %s", err))
 		return multistep.ActionHalt
@@ -94,7 +95,8 @@ func (s *stepConfigAlicloudEIP) Cleanup(state multistep.StateBag) {
 		ui.Say(fmt.Sprintf("Failed to unassociate eip."))
 	}
 
-	if err := WaitForEip(instance.RegionId, s.allocatedId, "Available", ALICLOUD_DEFAULT_SHORT_TIMEOUT); err != nil {
+	waitForParam_Avail := AlicloudAccessConfig{AlicloudRegion: instance.RegionId, WaitForAllocatedId: s.allocatedId, WaitForStatus: "Available"}
+	if err := WaitForExpected(waitForParam_Avail.DescribeEipAddresses, waitForParam_Avail.EvaluatorEipAddress, ALICLOUD_DEFAULT_SHORT_TIMEOUT); err != nil {
 		ui.Say(fmt.Sprintf("Timeout while unassociating eip."))
 	}
 
@@ -105,43 +107,4 @@ func (s *stepConfigAlicloudEIP) Cleanup(state multistep.StateBag) {
 		ui.Say(fmt.Sprintf("Failed to release eip."))
 	}
 
-}
-
-func WaitForEip(regionId string, allocatedId string, status string, timeout int) error {
-	var b Builder
-	b.config.AlicloudRegion = regionId
-	if err := b.config.Config(); err != nil {
-		return err
-	}
-	client, err := b.config.Client()
-	if err != nil {
-		return err
-	}
-
-	if timeout <= 0 {
-		timeout = 60
-	}
-	for {
-		describeEipAddressesReq := ecs.CreateDescribeEipAddressesRequest()
-
-		describeEipAddressesReq.RegionId = regionId
-		describeEipAddressesReq.AllocationId = allocatedId
-		resp, err := client.DescribeEipAddresses(describeEipAddressesReq)
-		if err != nil {
-			return err
-		}
-		eipAddress := resp.EipAddresses.EipAddress
-		if len(eipAddress) == 0 {
-			return fmt.Errorf("Not found eip")
-		}
-		if eipAddress[0].Status == status {
-			break
-		}
-		timeout = timeout - 5
-		if timeout <= 0 {
-			return fmt.Errorf("Timeout")
-		}
-		time.Sleep(5 * time.Second)
-	}
-	return nil
 }

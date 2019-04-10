@@ -119,7 +119,8 @@ func (s *stepConfigAlicloudVSwitch) Run(_ context.Context, state multistep.State
 		return multistep.ActionHalt
 	}
 
-	if err := WaitForVSwitchAvailable(config.AlicloudRegion, vpcId, vswitchRes.VSwitchId, ALICLOUD_DEFAULT_TIMEOUT); err != nil {
+	waitForParam := AlicloudAccessConfig{AlicloudRegion: config.AlicloudRegion, WaitForVpcId: vpcId, WaitForVSwitchId: vswitchRes.VSwitchId, WaitForStatus: "Available"}
+	if err := WaitForExpected(waitForParam.DescribeVSwitches, waitForParam.EvaluatorVSwitches, ALICLOUD_DEFAULT_TIMEOUT); err != nil {
 		state.Put("error", err)
 		ui.Error(fmt.Sprintf("Timeout waiting for vswitch to become available: %v", err))
 		return multistep.ActionHalt
@@ -157,43 +158,4 @@ func (s *stepConfigAlicloudVSwitch) Cleanup(state multistep.StateBag) {
 		}
 		break
 	}
-}
-
-func WaitForVSwitchAvailable(regionId string, vpcId string, vSwitchId string, timeout int) error {
-	var b Builder
-	b.config.AlicloudRegion = regionId
-	if err := b.config.Config(); err != nil {
-		return err
-	}
-	client, err := b.config.Client()
-	if err != nil {
-		return err
-	}
-
-	if timeout <= 0 {
-		timeout = 60
-	}
-	for {
-		describeVSwitchesReq := ecs.CreateDescribeVSwitchesRequest()
-
-		describeVSwitchesReq.VpcId = vpcId
-		describeVSwitchesReq.VSwitchId = vSwitchId
-		resp, err := client.DescribeVSwitches(describeVSwitchesReq)
-		if err != nil {
-			return err
-		}
-		vSwitch := resp.VSwitches.VSwitch
-		if len(vSwitch) == 0 {
-			return fmt.Errorf("Not found vSwitch")
-		}
-		if vSwitch[0].Status == "Available" {
-			break
-		}
-		timeout = timeout - 5
-		if timeout <= 0 {
-			return fmt.Errorf("Timeout")
-		}
-		time.Sleep(5 * time.Second)
-	}
-	return nil
 }

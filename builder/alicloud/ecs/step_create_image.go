@@ -3,7 +3,6 @@ package ecs
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/helper/multistep"
@@ -54,7 +53,8 @@ func (s *stepCreateAlicloudImage) Run(_ context.Context, state multistep.StateBa
 		return halt(state, err, "Error creating image")
 	}
 
-	if err := WaitForImageReady(config.AlicloudRegion, imageId, s.WaitSnapshotReadyTimeout); err != nil {
+	waitForParam := AlicloudAccessConfig{AlicloudRegion: config.AlicloudRegion, WaitForImageId: imageId}
+	if err := WaitForExpected(waitForParam.DescribeImages, waitForParam.EvaluatorImages, s.WaitSnapshotReadyTimeout); err != nil {
 		return halt(state, err, "Timeout waiting for image to be created")
 	}
 
@@ -111,50 +111,4 @@ func (s *stepCreateAlicloudImage) Cleanup(state multistep.StateBag) {
 		ui.Error(fmt.Sprintf("Error deleting image, it may still be around: %s", err))
 		return
 	}
-}
-
-func WaitForImageReady(regionId string, imageId string, timeout int) error {
-	var b Builder
-	b.config.AlicloudRegion = regionId
-	if err := b.config.Config(); err != nil {
-		return err
-	}
-	client, err := b.config.Client()
-	if err != nil {
-		return err
-	}
-
-	if timeout <= 0 {
-		timeout = 60
-	}
-	for {
-		describeImagesReq := ecs.CreateDescribeImagesRequest()
-
-		describeImagesReq.ImageId = imageId
-		describeImagesReq.RegionId = regionId
-		describeImagesReq.Status = "Creating"
-		resp, err := client.DescribeImages(describeImagesReq)
-		if err != nil {
-			return err
-		}
-		image := resp.Images.Image
-		if image == nil || len(image) == 0 {
-			describeImagesReq.Status = "Available"
-			images, err := client.DescribeImages(describeImagesReq)
-			if err == nil && len(images.Images.Image) == 1 {
-				break
-			} else {
-				return fmt.Errorf("not found images: %s", err)
-			}
-		}
-		if image[0].Progress == "100%" {
-			break
-		}
-		timeout = timeout - 5
-		if timeout <= 0 {
-			return fmt.Errorf("Timeout")
-		}
-		time.Sleep(5 * time.Second)
-	}
-	return nil
 }

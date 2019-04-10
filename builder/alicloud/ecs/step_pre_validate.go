@@ -16,7 +16,6 @@ type stepPreValidate struct {
 
 func (s *stepPreValidate) Run(_ context.Context, state multistep.StateBag) multistep.StepAction {
 	ui := state.Get("ui").(packer.Ui)
-
 	var errs *packer.MultiError
 
 	if err := s.validateRegions(state); err != nil {
@@ -36,7 +35,7 @@ func (s *stepPreValidate) Run(_ context.Context, state multistep.StateBag) multi
 	return multistep.ActionContinue
 }
 
-func (s *stepPreValidate) validateRegions(state multistep.StateBag) error{
+func (s *stepPreValidate) validateRegions(state multistep.StateBag) error {
 	ui := state.Get("ui").(packer.Ui)
 	config := state.Get("config").(*Config)
 
@@ -64,7 +63,7 @@ func (s *stepPreValidate) validateRegions(state multistep.StateBag) error{
 	return nil
 }
 
-func (s *stepPreValidate) validateDestImageName(state multistep.StateBag) error{
+func (s *stepPreValidate) validateDestImageName(state multistep.StateBag) error {
 	ui := state.Get("ui").(packer.Ui)
 	client := state.Get("client").(*ecs.Client)
 	config := state.Get("config").(*Config)
@@ -75,8 +74,8 @@ func (s *stepPreValidate) validateDestImageName(state multistep.StateBag) error{
 	}
 
 	ui.Say("Prevalidating image name...")
-
 	describeImagesReq := ecs.CreateDescribeImagesRequest()
+
 	describeImagesReq.RegionId = config.AlicloudRegion
 	describeImagesReq.ImageName = s.AlicloudDestImageName
 

@@ -60,7 +60,8 @@ func (s *stepConfigAlicloudVPC) Run(_ context.Context, state multistep.StateBag)
 		return multistep.ActionHalt
 	}
 
-	if err := WaitForVpcAvailable(config.AlicloudRegion, vpc.VpcId, ALICLOUD_DEFAULT_SHORT_TIMEOUT); err != nil {
+	waitForParam := AlicloudAccessConfig{AlicloudRegion: config.AlicloudRegion, WaitForVpcId: vpc.VpcId, WaitForStatus: "Available"}
+	if err := WaitForExpected(waitForParam.DescribeVpcs, waitForParam.EvaluatorVpcs, ALICLOUD_DEFAULT_SHORT_TIMEOUT); err != nil {
 		state.Put("error", err)
 		ui.Say(fmt.Sprintf("Failed waiting for vpc to become available: %s", err))
 		return multistep.ActionHalt
@@ -100,40 +101,4 @@ func (s *stepConfigAlicloudVPC) Cleanup(state multistep.StateBag) {
 		}
 		break
 	}
-}
-
-func WaitForVpcAvailable(regionId string, vpcId string, timeout int) error {
-	var b Builder
-	b.config.AlicloudRegion = regionId
-	if err := b.config.Config(); err != nil {
-		return err
-	}
-	client, err := b.config.Client()
-	if err != nil {
-		return err
-	}
-
-	if timeout <= 0 {
-		timeout = 60
-	}
-	for {
-		describeVpcsReq := ecs.CreateDescribeVpcsRequest()
-
-		describeVpcsReq.RegionId = regionId
-		describeVpcsReq.VpcId = vpcId
-		resp, err := client.DescribeVpcs(describeVpcsReq)
-		if err != nil {
-			return err
-		}
-		vpc := resp.Vpcs.Vpc
-		if len(vpc) > 0 && vpc[0].Status == "Available" {
-			break
-		}
-		timeout = timeout - 5
-		if timeout <= 0 {
-			return fmt.Errorf("Timeout")
-		}
-		time.Sleep(5 * time.Second)
-	}
-	return nil
 }
