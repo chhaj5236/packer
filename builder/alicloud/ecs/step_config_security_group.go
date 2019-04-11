@@ -130,7 +130,7 @@ func (s *stepConfigAlicloudSecurityGroup) Cleanup(state multistep.StateBag) {
 	client := state.Get("client").(*ecs.Client)
 	ui := state.Get("ui").(packer.Ui)
 
-	message(state, "security group")
+	cleanUpMessage(state, "security group")
 	timeoutPoint := time.Now().Add(120 * time.Second)
 	for {
 		deleteSecurityGroupReq := ecs.CreateDeleteSecurityGroupRequest()

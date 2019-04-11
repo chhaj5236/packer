@@ -55,7 +55,7 @@ func (c *AlicloudAccessConfig) Prepare(ctx *interpolate.Context) []error {
 	}
 
 	if c.AlicloudRegion == "" {
-		errs = append(errs, fmt.Errorf("ALICLOUD_REGION must be set in template file or environment variables."))
+		errs = append(errs, fmt.Errorf("region option or ALICLOUD_REGION must be provided in template file or environment variables."))
 	}
 
 	if len(errs) > 0 {

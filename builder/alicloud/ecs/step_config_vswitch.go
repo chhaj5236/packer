@@ -138,7 +138,7 @@ func (s *stepConfigAlicloudVSwitch) Cleanup(state multistep.StateBag) {
 
 	client := state.Get("client").(*ecs.Client)
 	ui := state.Get("ui").(packer.Ui)
-	message(state, "vSwitch")
+	cleanUpMessage(state, "vSwitch")
 	timeoutPoint := time.Now().Add(10 * time.Second)
 	for {
 		deleteVSwitchReq := ecs.CreateDeleteVSwitchRequest()

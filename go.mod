@@ -170,7 +170,7 @@ require (
 	golang.org/x/oauth2 v0.0.0-20181203162652-d668ce993890
 	golang.org/x/sync v0.0.0-20181108010431-42b317875d0f
 	golang.org/x/sys v0.0.0-20190215142949-d0b11bdaac8a
-	golang.org/x/tools v0.0.0-20190402200628-202502a5a924 // indirect
+	golang.org/x/tools v0.0.0-20190410211219-2538eef75904 // indirect
 	google.golang.org/api v0.1.0
 	google.golang.org/appengine v1.4.0 // indirect
 	gopkg.in/airbrake/gobrake.v2 v2.0.9 // indirect
