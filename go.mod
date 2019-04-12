@@ -39,7 +39,6 @@ require (
 	github.com/creack/goselect v0.0.0-20180210034346-528c74964609 // indirect
 	github.com/dchest/safefile v0.0.0-20151022103144-855e8d98f185 // indirect
 	github.com/denisenkom/go-mssqldb v0.0.0-20181014144952-4e0d7dc8888f // indirect
-	github.com/denverdino/aliyungo v0.0.0-20190220033614-36e2ae938978
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/digitalocean/godo v1.7.3
 	github.com/dnaeon/go-vcr v1.0.0 // indirect
@@ -170,7 +169,7 @@ require (
 	golang.org/x/oauth2 v0.0.0-20181203162652-d668ce993890
 	golang.org/x/sync v0.0.0-20181108010431-42b317875d0f
 	golang.org/x/sys v0.0.0-20190215142949-d0b11bdaac8a
-	golang.org/x/tools v0.0.0-20190410211219-2538eef75904 // indirect
+	golang.org/x/tools v0.0.0-20190411180116-681f9ce8ac52 // indirect
 	google.golang.org/api v0.1.0
 	google.golang.org/appengine v1.4.0 // indirect
 	gopkg.in/airbrake/gobrake.v2 v2.0.9 // indirect

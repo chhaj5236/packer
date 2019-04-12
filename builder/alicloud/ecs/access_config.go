@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/hashicorp/packer/version"
 	"os"
+	"time"
 
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/template/interpolate"
@@ -21,6 +22,7 @@ type AlicloudAccessConfig struct {
 }
 
 const Packer = "HashiCorp-Packer"
+const DefaultRequestReadTimeout = 10 * time.Second
 
 // Client for AlicloudClient
 func (c *AlicloudAccessConfig) Client() (*ecs.Client, error) {
@@ -39,6 +41,7 @@ func (c *AlicloudAccessConfig) Client() (*ecs.Client, error) {
 	}
 
 	client.AppendUserAgent(Packer, version.FormattedVersion())
+	client.SetReadTimeout(DefaultRequestReadTimeout)
 	c.client = client
 
 	return c.client, nil

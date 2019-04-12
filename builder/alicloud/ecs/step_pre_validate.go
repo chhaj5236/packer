@@ -76,11 +76,12 @@ func (s *stepPreValidate) validateDestImageName(state multistep.StateBag) error{
 
 	ui.Say("Prevalidating image name...")
 
-	describeImagesReq := ecs.CreateDescribeImagesRequest()
-	describeImagesReq.RegionId = config.AlicloudRegion
-	describeImagesReq.ImageName = s.AlicloudDestImageName
+	describeImagesRequest := ecs.CreateDescribeImagesRequest()
+	describeImagesRequest.RegionId = config.AlicloudRegion
+	describeImagesRequest.ImageName = s.AlicloudDestImageName
+	describeImagesRequest.Status =  fmt.Sprintf("%s,%s,%s,%s", ImageStatusAvailable, ImageStatusCreateFailed, ImageStatusCreating, ImageStatusWating)
 
-	imagesResponse, err := client.DescribeImages(describeImagesReq)
+	imagesResponse, err := client.DescribeImages(describeImagesRequest)
 	if err != nil {
 		return fmt.Errorf("Error querying alicloud image: %s", err)
 	}
