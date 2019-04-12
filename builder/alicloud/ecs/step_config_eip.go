@@ -3,7 +3,6 @@ package ecs
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/hashicorp/packer/helper/multistep"

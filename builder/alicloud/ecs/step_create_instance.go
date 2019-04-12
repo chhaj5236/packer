@@ -39,7 +39,7 @@ func (s *stepCreateAlicloudInstance) Run(_ context.Context, state multistep.Stat
 	if err != nil {
 		return halt(state, err, "")
 	}
-  instance, err := client.CreateInstance(createInstanceRequest)
+  	instance, err := client.CreateInstance(createInstanceRequest)
 	if err != nil {
 		return halt(state, err,"Error creating instance")
 	}
@@ -47,7 +47,7 @@ func (s *stepCreateAlicloudInstance) Run(_ context.Context, state multistep.Stat
 	instanceId := instance.InstanceId
 
 	waitForParam := AlicloudAccessConfig{AlicloudRegion: s.RegionId, WaitForInstanceId: instanceId, WaitForStatus: "Stopped"}
-	if err := WaitForExpected(waitForParam.DescribeInstances, waitForParam.EvaluatorInstance, ALICLOUD_DEFAULT_TIMEOUT); err != nil { {
+	if err := WaitForExpected(waitForParam.DescribeInstances, waitForParam.EvaluatorInstance, ALICLOUD_DEFAULT_TIMEOUT); err != nil {
 		err := fmt.Errorf("Error waiting create instance: %s", err)
 		state.Put("error", err)
 		ui.Error(err.Error())
