@@ -34,13 +34,14 @@ func (s *stepConfigAlicloudEIP) Run(_ context.Context, state multistep.StateBag)
 		return multistep.ActionContinue
 	}
 
-	ui.Say("Allocating eip")
-	allocateEipAddressReq := ecs.CreateAllocateEipAddressRequest()
+	ui.Say("Allocating eip...")
+	allocateEipAddressRequest := ecs.CreateAllocateEipAddressRequest()
 
-	allocateEipAddressReq.RegionId = instance.RegionId
-	allocateEipAddressReq.InternetChargeType = s.InternetChargeType
-	allocateEipAddressReq.Bandwidth = strconv.Itoa(s.InternetMaxBandwidthOut)
-	response, err := client.AllocateEipAddress(allocateEipAddressReq)
+	allocateEipAddressRequest.RegionId = instance.RegionId
+	allocateEipAddressRequest.InternetChargeType = s.InternetChargeType
+	allocateEipAddressRequest.Bandwidth = string(convertNumber(s.InternetMaxBandwidthOut))
+
+	response, err := client.AllocateEipAddress(allocateEipAddressRequest)
 	if err != nil {
 		state.Put("error", err)
 		ui.Say(fmt.Sprintf("Error allocating eip: %s", err))
@@ -85,7 +86,7 @@ func (s *stepConfigAlicloudEIP) Cleanup(state multistep.StateBag) {
 	instance := state.Get("instance").(ecs.Instance)
 	ui := state.Get("ui").(packer.Ui)
 
-	message(state, "EIP")
+	cleanUpMessage(state, "EIP")
 
 	unassociateEipAddressReq := ecs.CreateUnassociateEipAddressRequest()
 

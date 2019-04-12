@@ -31,9 +31,7 @@ func (s *stepConfigAlicloudVPC) Run(_ context.Context, state multistep.StateBag)
 		describeVpcsReq.RegionId = config.AlicloudRegion
 		vpcs, err := client.DescribeVpcs(describeVpcsReq)
 		if err != nil {
-			ui.Say(fmt.Sprintf("Failed querying vpcs: %s", err))
-			state.Put("error", err)
-			return multistep.ActionHalt
+			return halt(state, err, "Failed querying vpcs")
 		}
 		vpc := vpcs.Vpcs.Vpc
 		if len(vpc) > 0 {
@@ -41,13 +39,11 @@ func (s *stepConfigAlicloudVPC) Run(_ context.Context, state multistep.StateBag)
 			s.isCreate = false
 			return multistep.ActionContinue
 		}
-		message := fmt.Sprintf("The specified vpc {%s} doesn't exist.", s.VpcId)
-		state.Put("error", errorsNew.New(message))
-		ui.Say(message)
-		return multistep.ActionHalt
 
+		message := fmt.Sprintf("The specified vpc {%s} doesn't exist.", s.VpcId)
+		return halt(state, errorsNew.New(message), "")
 	}
-	ui.Say("Creating vpc")
+	ui.Say("Creating vpc...")
 	createVpcReq := ecs.CreateCreateVpcRequest()
 
 	createVpcReq.RegionId = config.AlicloudRegion
@@ -81,7 +77,7 @@ func (s *stepConfigAlicloudVPC) Cleanup(state multistep.StateBag) {
 	client := state.Get("client").(*ecs.Client)
 	ui := state.Get("ui").(packer.Ui)
 
-	message(state, "VPC")
+	cleanUpMessage(state, "VPC")
 	timeoutPoint := time.Now().Add(60 * time.Second)
 	for {
 		deleteVpcReq := ecs.CreateDeleteVpcRequest()
@@ -89,7 +85,8 @@ func (s *stepConfigAlicloudVPC) Cleanup(state multistep.StateBag) {
 		deleteVpcReq.VpcId = s.VpcId
 		if _, err := client.DeleteVpc(deleteVpcReq); err != nil {
 			e := err.(errors.Error)
-			if (e.ErrorCode() == "DependencyViolation.Instance" || e.ErrorCode() == "DependencyViolation.RouteEntry" ||
+			if (e.ErrorCode() == "DependencyViolation.Instance" ||
+				e.ErrorCode() == "DependencyViolation.RouteEntry" ||
 				e.ErrorCode() == "DependencyViolation.VSwitch" ||
 				e.ErrorCode() == "DependencyViolation.SecurityGroup" ||
 				e.ErrorCode() == "Forbbiden") && time.Now().Before(timeoutPoint) {
