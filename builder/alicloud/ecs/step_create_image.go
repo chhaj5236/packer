@@ -22,47 +22,36 @@ func (s *stepCreateAlicloudImage) Run(_ context.Context, state multistep.StateBa
 
 	// Create the alicloud image
 	ui.Say(fmt.Sprintf("Creating image: %s", config.AlicloudImageName))
-	var imageId string
-	var err error
+
+	createImageRequest := ecs.CreateCreateImageRequest()
+	createImageRequest.RegionId = config.AlicloudRegion
+	createImageRequest.ImageName = config.AlicloudImageName
+	createImageRequest.ImageVersion = config.AlicloudImageVersion
+	createImageRequest.Description = config.AlicloudImageDescription
 
 	if s.AlicloudImageIgnoreDataDisks {
 		snapshotId := state.Get("alicloudsnapshot").(string)
-		createImageReq := ecs.CreateCreateImageRequest()
-
-		createImageReq.RegionId = config.AlicloudRegion
-		createImageReq.SnapshotId = snapshotId
-		createImageReq.ImageName = config.AlicloudImageName
-		createImageReq.ImageVersion = config.AlicloudImageVersion
-		createImageReq.Description = config.AlicloudImageDescription
-		image, _ := client.CreateImage(createImageReq)
-		imageId = image.ImageId
+		createImageRequest.SnapshotId = snapshotId
 	} else {
 		instance := state.Get("instance").(ecs.Instance)
-		createImageReq := ecs.CreateCreateImageRequest()
-
-		createImageReq.RegionId = config.AlicloudRegion
-		createImageReq.InstanceId = instance.InstanceId
-		createImageReq.ImageName = config.AlicloudImageName
-		createImageReq.ImageVersion = config.AlicloudImageVersion
-		createImageReq.Description = config.AlicloudImageDescription
-		image, _ := client.CreateImage(createImageReq)
-		imageId = image.ImageId
+		createImageRequest.InstanceId = instance.InstanceId
 	}
 
+	imageResponse, err := client.CreateImage(createImageRequest)
 	if err != nil {
 		return halt(state, err, "Error creating image")
 	}
-
+  
+  imageId := imageResponse.ImageId
 	waitForParam := AlicloudAccessConfig{AlicloudRegion: config.AlicloudRegion, WaitForImageId: imageId}
 	if err := WaitForExpected(waitForParam.DescribeImages, waitForParam.EvaluatorImages, s.WaitSnapshotReadyTimeout); err != nil {
 		return halt(state, err, "Timeout waiting for image to be created")
 	}
 
-	describeImagesReq := ecs.CreateDescribeImagesRequest()
-
-	describeImagesReq.ImageId = imageId
-	describeImagesReq.RegionId = config.AlicloudRegion
-	images, err := client.DescribeImages(describeImagesReq)
+	describeImagesResponse := ecs.CreateDescribeImagesRequest()
+	describeImagesResponse.ImageId = imageId
+	describeImagesResponse.RegionId = config.AlicloudRegion
+	images, err := client.DescribeImages(describeImagesResponse)
 	if err != nil {
 		return halt(state, err, "Error querying created imaged")
 	}

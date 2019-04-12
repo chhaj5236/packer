@@ -1,9 +1,9 @@
 package ecs
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
@@ -129,11 +129,15 @@ func checkSnapshotsDeleted(snapshotIds []string) builderT.TestCheckFunc {
 	return func(artifacts []packer.Artifact) error {
 		// Verify the snapshots are gone
 		client, _ := testAliyunClient()
-		snapshot := strings.Join(snapshotIds, " ")
+		data, err := json.Marshal(snapshotIds)
+		if err != nil {
+			return fmt.Errorf("Marshal snapshotIds array failed %v", err)
+		}
+
 		describeSnapshotsReq := ecs.CreateDescribeSnapshotsRequest()
 
 		describeSnapshotsReq.RegionId = "cn-beijing"
-		describeSnapshotsReq.SnapshotIds = snapshot
+		describeSnapshotsReq.SnapshotIds = string(data)
 		snapshotResp, err := client.DescribeSnapshots(describeSnapshotsReq)
 		if err != nil {
 			return fmt.Errorf("Query snapshot failed %v", err)
