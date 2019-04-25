@@ -73,6 +73,9 @@ builder.
 
 -   `image_copy_regions` (array of string) - Copy to the destination regionIds.
 
+-   `image_encrypted` (boolean) - Copy image support encryption settings.
+    But only supports use an API or the CLI to use the encryption function.
+
 -   `image_description` (string) - The description of the image, with a length
     limit of 0 to 256 characters. Leaving it blank means null, which is the
     default value. It cannot begin with `http://` or `https://`.
@@ -147,6 +150,37 @@ builder.
 
         Snapshots from on or before July 15, 2013 cannot be used to create a
         disk.
+
+    -   `disk_encrypted` (boolean) - Cloud disk support encryption settings.
+        [ECS disk encryption](https://www.alibabacloud.com/help/doc-detail/59643.htm?spm=a2c63.q38357.b99.195.2eca42e5KDF3gT)
+        The ECS disk encryption feature allows you to encrypt new ECS disks 
+        so that you can meet encryption needs for scenarios such as certification
+        requirements and business security. The ECS disk encryption feature 
+        means you do not have to create, maintain, or protect your own key 
+        management infrastructure, nor change any of your existing applications 
+        or maintenance processes. In addition, no extra encryption or decryption 
+        operations are required, making ECS disk encryption operations invisible 
+        to your applications or other operations.
+
+        After an encrypted ECS disk is created and attached to an ECS instance, 
+        you can encrypt data that is:
+
+          -  Stored directly on the ECS disk.
+          -  Transmitted between the ECS disk and the instance. However, data in 
+             the instance operating system is not encrypted.
+          -  Created from the encrypted ECS disk, such as snapshots. 
+             These snapshots are called encrypted snapshots.
+
+        Encryption and decryption are performed on the host that runs the ECS 
+        instance, so the data transmitted from the ECS instance to the cloud disk 
+        is encrypted.
+
+        ECS disk encryption supports all available cloud disks (Basic Cloud Disks, 
+        Ultra Cloud Disks, SSD Cloud Disks, and ESSDs) and shared block storage 
+        (Ultra Shared Block Storage and SSD Shared Block Storage).
+
+        ECS disk encryption supports all available instance types and is supported 
+        in all regions.
 
 -   `image_ignore_data_disks`(boolean) - If this value is true, the image
     created will not include any snapshot of data disks. This option would be
